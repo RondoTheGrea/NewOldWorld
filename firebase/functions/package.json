@@ -1,0 +1,22 @@
+{
+  "name": "firebase-functions",
+  "private": true,
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "serve": "npm run build && firebase emulators:start --only functions,firestore,auth",
+    "shell": "npm run build && firebase functions:shell",
+    "deploy": "firebase deploy --only functions"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,3555 @@
+/*
+ * The Overview tab's own look, and **only** the Overview tab's.
+ *
+ * The rest of the dashboard runs on the flat purple-accented style in
+ * index.css. This page is a different kind of thing — it is the board an owner
+ * leaves open while trucks are out, showing money and completeness rather than
+ * forms — so it gets a more formal treatment: an ink-and-navy palette, hairline
+ * rules instead of filled cards, small-caps micro-labels, and tabular figures
+ * everywhere a number can change while you're looking at it.
+ *
+ * Every selector below is scoped under `.ops`, so nothing here can reach the
+ * Bread Types, Areas & Trucks or Settings pages. Keep it that way: this file is
+ * imported by overview.tsx alone, and the two styles are meant to stay
+ * separable until someone decides to restyle the whole dashboard.
+ */
+
+.ops {
+  /* Ink and navy. Deliberately no purple — that accent belongs to the other
+     pages, and using it here would read as "same page, new layout". */
+  --ops-ink: #0f172a;
+  --ops-ink-soft: #334155;
+  --ops-muted: #64748b;
+  --ops-faint: #94a3b8;
+  --ops-line: #cbd5e1;
+  --ops-line-strong: #94a3b8;
+  --ops-surface: #fff;
+  --ops-surface-sunken: #f8fafc;
+
+  --ops-accent: #1e40af;
+  --ops-accent-soft: #eef2ff;
+
+  /* Status. Green means a truck is out right now; slate means the day is
+     closed; amber and red are the two ways a run can be worth someone's
+     attention. */
+  --ops-live: #047857;
+  --ops-live-soft: #ecfdf5;
+  --ops-warn: #b45309;
+  --ops-warn-soft: #fffbeb;
+  --ops-alert: #b91c1c;
+  --ops-alert-soft: #fef2f2;
+
+  color: var(--ops-ink-soft);
+  font-size: 14px;
+  line-height: 1.5;
+  /* Numbers change under the reader's eyes on this page. Tabular figures keep
+     a column of pesos from jittering sideways every time one ticks up. */
+  font-variant-numeric: tabular-nums;
+
+  /* The tab strip stays put and the view below it scrolls — the same
+     relationship the sidebar has to the page. Needs a bounded height, which
+     .dashboard-main (flex: 1 in a column) already provides. */
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  /* Cancels .dashboard-main's 24px padding so this page runs edge-to-edge
+     inside it, then puts that inset back on the tab strip and the scroll
+     view's *content* instead of on the scrolling box itself — see .ops-tabs
+     and .ops-view below. Left as .dashboard-main's own padding, the scrollbar
+     that box's overflow puts on .ops-view would sit 24px in from the edge on
+     every side, which reads as an oversized margin around it. Other pages
+     under .dashboard-main don't scroll internally, so they keep the padding
+     as it was.
+
+     Read from the same --page-pad token .dashboard-main pays out
+     (index.css), never a literal — the cancel and the padding it cancels
+     have to move together, and both shrink on a narrow screen. */
+  margin: calc(var(--page-pad) * -1);
+}
+
+.ops *,
+.ops *::before,
+.ops *::after {
+  box-sizing: border-box;
+}
+
+.ops-tabs {
+  padding: var(--page-pad) var(--page-pad) 0;
+}
+
+/* `min-height: 0` is what actually lets this scroll instead of growing the
+   flex parent — without it a flex child refuses to shrink below its content. */
+.ops-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Right padding is deliberately smaller than the other three sides: this is
+     the gutter between the content and the scrollbar's track, not an inset
+     from the window edge, so it only needs to keep the last few pixels of a
+     card from touching the thumb. */
+  padding: 0 8px var(--page-pad) var(--page-pad);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* --- shared atoms ------------------------------------------------------- */
+
+.ops-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ops-faint);
+}
+
+.ops-figure {
+  font-size: 24px;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  color: var(--ops-ink);
+}
+
+/* Proportional figures on a large standalone number — tabular-nums gives every
+   digit the width of a 0, which makes something like 121 look loose at display
+   size. The tables keep tabular; these don't need to align with anything. */
+.ops-figure {
+  font-variant-numeric: proportional-nums;
+}
+
+.ops-figure-small {
+  font-size: 18px;
+}
+
+.ops-muted {
+  color: var(--ops-muted);
+}
+
+.ops-empty {
+  padding: 40px 24px;
+  border: 1px dashed var(--ops-line-strong);
+  border-radius: 10px;
+  background: var(--ops-surface-sunken);
+  text-align: center;
+  color: var(--ops-muted);
+}
+
+.ops-empty strong {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 620;
+  color: var(--ops-ink);
+}
+
+/* --- tab strip ---------------------------------------------------------- */
+
+.ops-tabs {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--ops-line);
+}
+
+.ops-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 16px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ops-muted);
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.ops-tab span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ops-faint);
+}
+
+.ops-tab:hover {
+  color: var(--ops-ink);
+}
+
+.ops-tab.active {
+  border-bottom-color: var(--ops-accent);
+  color: var(--ops-ink);
+}
+
+/* --- filter row --------------------------------------------------------- */
+
+/* One row above everything it scopes. Never a control inside a chart card,
+   and never a different period per chart — every chart on a tab reads the
+   same slice, or the reader has to check which is which. */
+.ops-filterbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--ops-line);
+  font-size: 13px;
+}
+
+.ops-segmented {
+  display: flex;
+  border: 1px solid var(--ops-line-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ops-segmented button {
+  padding: 7px 14px;
+  border: none;
+  border-right: 1px solid var(--ops-line-strong);
+  background: var(--ops-surface);
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--ops-ink-soft);
+}
+
+.ops-segmented button:last-child {
+  border-right: none;
+}
+
+.ops-segmented button:hover {
+  background: var(--ops-surface-sunken);
+}
+
+.ops-segmented button.active {
+  background: var(--ops-accent);
+  color: #fff;
+}
+
+.ops-search,
+.ops-select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--ops-line-strong);
+  border-radius: 8px;
+  background: var(--ops-surface);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ops-ink);
+}
+
+/* The bread charts' two scope dropdowns, Crew and Area.
+
+   A <select> sizes itself to its widest <option>, so left alone these two come
+   out whatever length the longest crew name and the longest area name happen
+   to be — a difference in the *data* showing up as a difference in the
+   *controls*. They scope the same charts and narrow together, so they read as
+   a pair and have to be one.
+
+   Equal *and* no wider than the text needs, without a hardcoded number:
+   `width: max-content` sizes the grid to its contents, and inside an
+   intrinsically-sized grid two equal `1fr` tracks both take the width of the
+   larger one's content. So the wider dropdown fits exactly and the narrower
+   one matches it — and if a crew is renamed to something long, both grow
+   together. A fixed width was the first attempt and is the thing to avoid
+   here: it is a guess, too wide for short names and clipping long ones.
+
+   The two `auto` tracks are the labels. It stays one row, so the filter bar
+   reads exactly as it did before. */
+.ops-scope {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  /* Sized by its contents, it would otherwise keep that width on a narrow
+     screen and push the bar sideways. This lets it shrink instead — the 1fr
+     tracks stay equal to each other the whole way down. */
+  max-width: 100%;
+}
+
+.ops-search {
+  flex: 1;
+  min-width: 200px;
+  max-width: 340px;
+}
+
+.ops-search:focus,
+.ops-select:focus {
+  outline: 2px solid var(--ops-accent);
+  outline-offset: -1px;
+}
+
+/* --- the calendar pickers ------------------------------------------------
+   One month grid, two pickers: the Trends tab's two-date range and the Live
+   tab's single day (CalendarPopover, shared by both). Own UI rather than a
+   native <input type="date"> — see the doc comment on CalendarPopover for
+   why. On Trends the trigger reuses .ops-select so it sits in the filter row
+   identically to the other dropdowns it's a sibling of; on Live it reuses the
+   day bar's own buttons instead. Only the popover is new either way. */
+
+.ops-calendar {
+  position: relative;
+}
+
+.ops-calendar-trigger {
+  cursor: pointer;
+  text-align: left;
+}
+
+/* `position: fixed`, not `absolute` under the trigger: the Trends filter bar
+   sits inside `.ops-view`, a panel that scrolls internally (`overflow-y:
+   auto`), and an absolutely-positioned popover taller than that panel's
+   *current* content gets clipped at the panel's edge — invisible past that
+   point rather than merely off-screen, which read as the bottom of the
+   calendar and the Apply/Cancel row missing entirely. `top`/`left` come from
+   the trigger's own screen position instead of CSS, computed in
+   DateRangePicker on open. */
+/* Portalled up to the `.ops` root rather than left beside its trigger (see
+   CalendarPopover), so its z-index is read against the page's own stack rather
+   than against its trigger's corner of it: above the summary dialog (25) it can
+   be opened from, below the export overlay (30) that has to cover everything
+   while a workbook is built. */
+.ops-calendar-popover {
+  position: fixed;
+  z-index: 26;
+  width: 280px;
+  padding: 14px;
+  border: 1px solid var(--ops-line);
+  border-radius: 12px;
+  background: var(--ops-surface);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+}
+
+.ops-calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ops-ink);
+}
+
+.ops-calendar-navbtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--ops-line-strong);
+  border-radius: 6px;
+  background: var(--ops-surface);
+  color: var(--ops-ink-soft);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.ops-calendar-navbtn:hover:not(:disabled) {
+  background: var(--ops-surface-sunken);
+}
+
+.ops-calendar-navbtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ops-calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ops-faint);
+  text-align: center;
+}
+
+/* No gap: cells sit edge to edge so an in-range span reads as one connected
+   bar. A gapped grid left every tinted day as a separate square with a sliver
+   of white between it and the next — barely a "range" at a glance. */
+.ops-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.ops-calendar-day {
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ops-ink-soft);
+  transition: background 100ms ease, color 100ms ease;
+}
+
+/* Excludes the two highlighted states on purpose — without it, hovering an
+   in-range or endpoint day (routine while dragging toward the second click)
+   swapped its accent tint for the plain hover grey, which is what made the
+   range look like it kept disappearing. */
+.ops-calendar-day:hover:not(:disabled):not(.ops-calendar-day-inrange):not(.ops-calendar-day-endpoint) {
+  background: var(--ops-surface-sunken);
+}
+
+.ops-calendar-day:disabled {
+  color: var(--ops-faint);
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Between the two ends — square and edge to edge with its neighbours (see
+   .ops-calendar-grid), so the tint reads as one continuous span rather than
+   a row of separate pills. */
+.ops-calendar-day-inrange {
+  border-radius: 0;
+  background: var(--ops-accent-soft);
+}
+
+/* A picked day: the two ends of a range, or the single day the Live tab is
+   showing. Filled solid so it's never mistaken for a day that's merely inside
+   a range, and keeping its full pill radius, which is what makes it read as
+   the edge of the bar rather than another square in it. */
+.ops-calendar-day-endpoint {
+  background: var(--ops-accent);
+  color: #fff;
+  font-weight: 650;
+}
+
+.ops-calendar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ops-line);
+  font-size: 12px;
+}
+
+.ops-calendar-buttons {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ops-calendar-cancel,
+.ops-calendar-apply {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.ops-calendar-cancel {
+  border: 1px solid var(--ops-line-strong);
+  background: var(--ops-surface);
+  color: var(--ops-ink-soft);
+}
+
+.ops-calendar-cancel:hover {
+  background: var(--ops-surface-sunken);
+}
+
+.ops-calendar-apply {
+  border: none;
+  background: var(--ops-accent);
+  color: #fff;
+}
+
+.ops-calendar-apply:hover:not(:disabled) {
+  background: #1b3694;
+}
+
+.ops-calendar-apply:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* --- charts ------------------------------------------------------------- */
+
+.ops-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.ops-chart-card {
+  padding: 16px 18px 18px;
+  border: 1px solid var(--ops-line);
+  border-radius: 12px;
+  background: var(--ops-surface);
+  margin-bottom: 28px;
+}
+
+.ops-charts > .ops-chart-card,
+.ops-drawer-body .ops-chart-card {
+  margin-bottom: 0;
+}
+
+.ops-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.ops-chart-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  color: var(--ops-ink);
+}
+
+.ops-chart-note {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--ops-muted);
+  max-width: 62ch;
+}
+
+/* The same note used as a footnote under a plot — the totals a chart states
+   in shapes and the reader may want in words. */
+.ops-chart-card > .ops-chart-note {
+  margin-top: 14px;
+}
+
+/* The table view is not an extra — three of the six series colours sit below
+   3:1 on white, which is only legal where the values are also reachable
+   without relying on colour at all. */
+.ops-chart-toggle {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--ops-line-strong);
+  border-radius: 7px;
+  background: var(--ops-surface);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ops-ink-soft);
+}
+
+.ops-chart-toggle:hover {
+  background: var(--ops-surface-sunken);
+}
+
+.ops-chart-table {
+  max-height: 320px;
+  overflow: auto;
+}
+
+/* A table that *is* the list rather than a long tail — every row on the page,
+   no box scrolling inside a page that already scrolls. It still scrolls
+   *sideways* on a narrow screen: with no height cap there is nothing to scroll
+   vertically, so `auto` only ever produces the horizontal bar a wide table
+   needs. */
+.ops-chart-table-full {
+  max-height: none;
+  overflow: auto;
+}
+
+
+.ops-chart-empty {
+  padding: 32px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ops-muted);
+}
+
+/* The plot is `position: relative` so the tooltip can be placed against it as
+   a percentage of its width. */
+.ops-plot {
+  position: relative;
+}
+
+/* No `width: 100%` here. The SVG is sized in real pixels from a measured
+   viewBox (see usePlotWidth in charts.tsx) so that a 2px line is 2px in every
+   card — stretching it to the box would scale every mark with the container. */
+.ops-svg {
+  display: block;
+  overflow: visible;
+}
+
+.ops-axis-text {
+  font-size: 11px;
+  fill: var(--ops-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ink, never the series colour — a light hue is illegible as text, and
+   identity comes from the coloured mark beside it. */
+.ops-line-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  fill: var(--ops-ink-soft);
+}
+
+.ops-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--ops-ink-soft);
+}
+
+.ops-legend li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ops-legend-key {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.ops-tooltip {
+  position: absolute;
+  top: 8px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ops-ink);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
+}
+
+.ops-tooltip strong {
+  font-weight: 650;
+}
+
+.ops-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.92;
+}
+
+.ops-tooltip em {
+  font-style: normal;
+  opacity: 0.62;
+}
+
+/* Horizontal bars are laid out in HTML, not SVG: category names are long and
+   variable, and letting the browser measure the text is what guarantees a
+   label is never clipped by its own bar. */
+.ops-barchart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ops-barchart-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(80px, 160px) 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.ops-barchart-label {
+  font-size: 13px;
+  color: var(--ops-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-barchart-track {
+  display: block;
+  height: 16px;
+  border-radius: 3px;
+  background: var(--ops-surface-sunken);
+}
+
+.ops-barchart-fill {
+  display: block;
+  height: 100%;
+  /* Square where it meets the baseline, rounded at the data end. */
+  border-radius: 3px 4px 4px 3px;
+}
+
+/* The split variant: segments laid end to end, separated by the same 2px
+   spacer the rest of the kit uses between adjacent fills — never a border
+   drawn around them. The track keeps its trough, so a short bar still shows
+   how much of the scale it isn't using. */
+.ops-barchart-split {
+  display: flex;
+  gap: 2px;
+  overflow: hidden;
+}
+
+/* Deliberately left shrinkable. The segments are sized as percentages of the
+   track and the 2px spacer sits between them, so a bar at the very top of the
+   scale is 2px wider than the track it is in; letting the fills give that back
+   costs a pixel nobody can see, while holding their width would clip the
+   rounded end off the longest bar in the chart. */
+
+.ops-barchart-value {
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ops-ink);
+  white-space: nowrap;
+}
+
+/* Every segment's figure gets a column of its own, aligned down the chart and
+   **unruled** — a table's grid lines inside a chart make it look like neither.
+   The columns are told apart by the swatch heading each one and by this step
+   down in weight, not by a divider. */
+.ops-barchart-value-soft {
+  font-weight: 560;
+  color: var(--ops-ink-soft);
+}
+
+/* The split bar chart and its table twin (`.ops-table-even`) are laid out from
+   one set of numbers, because they are two views of the *same* rows and the
+   toggle between them must not move anything. Every figure column is
+   `--splitbar-col` wide with `--splitbar-gap` of air before it; a table has no
+   grid gaps, so its cells are the *sum* of the two and carry that air as left
+   padding, which lands every centred figure at the same x in both views.
+
+   The two paddings do the same job vertically: a chart row is a border-box div
+   and a table row is a set of collapsed cells, but both are 8px + one 13px/1.5
+   line + 8px, closed by the same hairline, so row N sits at the same height
+   whichever view is showing. Change one of these and both views move together
+   — which is the whole point of their being here rather than inline. */
+.ops {
+  --splitbar-col: 72px;
+  --splitbar-gap: 12px;
+  --splitbar-row-pad: 8px;
+  --splitbar-head-pad: 7px;
+}
+
+.ops-splitbar {
+  --splitbar-count: 2;
+  /* The rows carry their own padding and rule, so the flex gap `.ops-barchart`
+     sets for the plain bar chart would open a hole in the middle of every
+     separator. */
+  gap: 0;
+}
+
+/* The number columns are fixed-width so they line up row to row: sized by the
+   content of each row instead, every bar would end somewhere different and the
+   columns would stop being columns. */
+.ops-splitbar .ops-barchart-row,
+.ops-splitbar-head {
+  display: grid;
+  /* `--splitbar-col` is not a guess: the tracks are a fixed size, so they have
+     to clear the widest heading a caller passes — a swatch, its 6px gap and
+     about eight characters — or one column would overflow into the gaps beside
+     it and the even rhythm the centring buys would be lost. */
+  grid-template-columns: minmax(80px, 160px) 1fr repeat(var(--splitbar-count), var(--splitbar-col));
+  align-items: center;
+  column-gap: var(--splitbar-gap);
+  row-gap: 0;
+}
+
+/* A hairline under every row, the same one the table view draws.
+
+   **This is a deliberate reversal of "a chart is unruled".** That still holds
+   *across* a row — there are no vertical rules between the figure columns —
+   but a bread's name on the left and its fourth figure 500px away on the right
+   are only reliably on one line if a line says so, and the owner asked for it
+   after losing the thread on the widest rows. It also gives a row the exact
+   height its table twin has. */
+.ops-splitbar .ops-barchart-row {
+  padding: var(--splitbar-row-pad) 0;
+  border-bottom: 1px solid var(--ops-line);
+}
+
+/* Matching `.ops-table tr:last-child td` — a chart closed by a rule looks like
+   a table missing its last row. */
+.ops-splitbar .ops-barchart-row:last-child {
+  border-bottom: none;
+}
+
+/* A row that opens something is a real `<button>` (see SplitBarChart's
+   `onSelect`), which arrives wearing the browser's own button chrome: a
+   border, a centred text alignment, a font that isn't the page's. Undone here
+   rather than in a global reset, because the hairline under the row is *also*
+   a border and has to be put back after `border: none` has taken the UA one
+   away — the order of these two declarations is load-bearing.
+
+   The layout itself needs nothing: the grid is declared on `.ops-barchart-row`
+   above, which the button carries, so a row is the same row whichever element
+   draws it and the chart still lines up with its table twin column for
+   column. */
+.ops-splitbar button.ops-barchart-row {
+  appearance: none;
+  border: none;
+  border-bottom: 1px solid var(--ops-line);
+  background: transparent;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-splitbar button.ops-barchart-row:last-child {
+  border-bottom: none;
+}
+
+/* The hover this chart deliberately did without until there was something
+   behind it to open. Navy's palest tint rather than the sunken grey: the bar's
+   own trough is that grey, and a row lighting up in the same colour as the
+   thing inside it reads as the trough having grown. */
+.ops-splitbar button.ops-barchart-row:hover {
+  background: var(--ops-accent-soft);
+}
+
+.ops-splitbar button.ops-barchart-row:focus-visible {
+  /* Inset, because a row runs the full width of the card and an outline drawn
+     outside it would be clipped at both ends. */
+  outline: 2px solid var(--ops-accent);
+  outline-offset: -2px;
+}
+
+.ops-splitbar .ops-barchart-value {
+  /* Centred, not right-aligned. The columns are equal widths, so ragged-left
+     figures ("9,640" beside "34") put a different amount of air between each
+     pair and the even column rhythm stops being visible. Centred, the spacing
+     down and across the block is the same wherever the digits fall. */
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The heading row, built to the same recipe as the table's `thead` — see
+   `.ops-table-even th`, which is pulled *off* the page's uppercase micro-label
+   style to meet this one rather than the other way round: these headings carry
+   the legend swatches, and uppercase with letter-spacing does not fit a column
+   sized for the figures under it. */
+.ops-splitbar-head {
+  padding: var(--splitbar-head-pad) 0;
+  border-bottom: 1px solid var(--ops-line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ops-muted);
+}
+
+/* One cell standing in for the name and the bar, so the figure headings sit
+   over the figures rather than over the plot. It takes the table's first
+   heading when the caller passes one (`leadLabel`), so the header row is the
+   same row in both views. */
+.ops-splitbar-gap {
+  grid-column: 1 / 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-splitbar-head > span:not(.ops-splitbar-gap) {
+  display: flex;
+  align-items: center;
+  /* Over the middle of the column, like the figures under it — a heading that
+     hugs one edge reads as belonging to whatever is on that side. */
+  justify-content: center;
+  gap: 6px;
+  /* A heading that wraps to two lines would push its whole row taller than the
+     figures under it; a hair of overflow into a 12px gutter is the cheaper
+     failure. */
+  white-space: nowrap;
+}
+
+/* The hover detail — a quantity the peso value doesn't say. `left`/`top` are
+   set inline per mouse move (see BarChart's onMouseMove), so this only fixes
+   the offset from that point: centred above the cursor rather than jumping
+   with it, the same relationship a native title tooltip has to the pointer. */
+.ops-barchart-tip {
+  position: absolute;
+  z-index: 1;
+  transform: translate(-50%, calc(-100% - 10px));
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--ops-ink);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.22);
+}
+
+/* --- the day bar -------------------------------------------------------- */
+
+.ops-daybar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--ops-line);
+}
+
+.ops-daybar h1 {
+  margin: 2px 0 0;
+  font-size: 26px;
+  font-weight: 640;
+  letter-spacing: -0.025em;
+  color: var(--ops-ink);
+}
+
+.ops-daybar-when {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ops-muted);
+}
+
+.ops-daynav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Matched on the direct children plus the calendar trigger by name, never as
+   a bare `.ops-daynav button` — the calendar's popover is a DOM descendant of
+   this bar even though it is drawn across the page, so a descendant selector
+   would repaint all 31 day cells and the ‹ › month arrows as day-bar buttons. */
+.ops-daynav > button,
+.ops-daynav .ops-daynav-date {
+  height: 32px;
+  min-width: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ops-line-strong);
+  border-radius: 7px;
+  background: var(--ops-surface);
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--ops-ink-soft);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.ops-daynav > button:hover:not(:disabled),
+.ops-daynav .ops-daynav-date:hover {
+  background: var(--ops-surface-sunken);
+  border-color: var(--ops-faint);
+}
+
+.ops-daynav > button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Deliberately the same chrome as ‹ Today › (it shares their rule above): it
+   is a fourth way of moving the same day, not a different kind of control.
+   Only the icon-and-label row inside it is its own. */
+.ops-daynav-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ops-daynav-date svg {
+  flex-shrink: 0;
+}
+
+/* The right-hand end of the day bar: the day's own navigation, and the one
+   action taken *on* a day.
+
+   They are siblings rather than one group on purpose. Everything inside
+   .ops-daynav is a way of moving the same day and shares one chrome; the
+   export is an action, and dressing it as a fifth navigation button would
+   invite a click from someone expecting the page to move. */
+.ops-daybar-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* The accent treatment the run panel's Export wears (.ops-export-btn), sized
+   to the day bar's 32px controls instead of to a 15px heading — the two are
+   the same action in two places and should be recognisably the same button. */
+.ops-daybar-export {
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0 14px;
+  border: 1px solid var(--ops-accent);
+  border-radius: 7px;
+  background: var(--ops-accent-soft);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ops-accent);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.ops-daybar-export:hover {
+  background: var(--ops-accent);
+  color: #fff;
+}
+
+/* --- the day's numbers -------------------------------------------------- */
+
+/* --- section headlines --------------------------------------------------
+
+   The Trends tab shows two different kinds of thing — the money, and the
+   bread — and they are read for different reasons. A big rule with a title on
+   it is what separates them, rather than leaving five chart cards in one
+   undifferentiated stack where the reader has to work out where one subject
+   ends.
+
+   Deliberately larger and heavier than anything else on the page: the
+   micro-label (.ops-label) is what titles a *figure*, and a caption weight
+   here would read as one more card heading rather than a division. Nothing in
+   this block is a control and it scopes nothing — the filters do that, and
+   they stay where they are.
+   --------------------------------------------------------------------------- */
+
+.ops-headline-block {
+  /* No bottom margin: what follows brings its own top spacing (.ops-stats has
+     it; .ops-charts supplies it as flex gap), and stacking the two would put a
+     different gap under each headline depending on what came next.
+
+     **The air above a headline is small now, and that is a consequence of the
+     rule having moved below it.** While the rule was on top, the gap ended in
+     a 3px navy line and all of it read as the break. Underneath, the same gap
+     is a plain empty band with nothing in it, and the owner's word for the
+     inherited 52 + 24 was "too many spaces" — correctly, because the break is
+     now made by the rule and the 24px type, and the space above was only
+     repeating it. 24px on top of the filter bar's own 24px margin and its
+     hairline, which has already said "new thing" before the heading arrives. */
+  margin: 24px 0 0;
+  padding-bottom: 16px;
+  /* **The rule sits under the whole block — title and its line of helper text
+     both — on the owner's call.** It ran above the heading first, on the
+     reasoning that a line under a heading separates it from its own content
+     while a line above separates this subject from the one before. What that
+     argument missed is that the helper text is *also* the heading: "the money
+     and the receipts, across every crew and every area" says what the section
+     is, and a rule drawn above it left the sentence floating between a rule
+     and the cards it introduces, reading as a caption for the first card. Under
+     the pair, the heading and its sentence are visibly one object and the rule
+     is the lid on it. It is 16px clear of the text, not the 24 it used to hold
+     above the title, so it reads as belonging to the block rather than to what
+     comes next.
+
+     Earlier still it underlined the title alone at 2px, which in a long stack
+     of white cards read as one more card border — the weight is what fixed
+     that, not the position. Navy at 3px is the one mark on this page heavy
+     enough to be seen without being looked for, and navy is already what this
+     page uses to mean "structure" (links, pills, the active tab) rather than
+     "status". Don't thin it. */
+  border-bottom: 3px solid var(--ops-accent);
+}
+
+.ops-headline {
+  margin: 0;
+  /* 32px against the cards' 15px titles — better than twice, which is what a
+     section heading needs to win against everything under it at a glance. The
+     size gap does that work on its own; the rule under it only marks where the
+     win happens.
+
+     It has been raised twice, 20 → 24 → 32, and both times because the break
+     was hard to find, not because a bigger heading was wanted for its own
+     sake. The second rise came with the air above it being cut by more than
+     half — see `.ops-headline-block` — and those two are one decision: the
+     break is carried by the type and the rule now, not by an empty band, so
+     the type has to be big enough to carry it. Don't shrink this without
+     putting the space back. */
+  font-size: 32px;
+  font-weight: 700;
+  /* Tighter as the type grows: the default tracking is drawn for text sizes
+     and reads as gappy on a 32px line. */
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--ops-ink);
+}
+
+/* The sentence under the heading is part of it, not a caption for what
+   follows (which is why the rule closes under the pair), so it steps up with
+   the title rather than staying at the page's small-print size. Still clearly
+   subordinate: muted ink at less than half the heading's size. */
+.ops-headline-note {
+  margin: 8px 0 0;
+  font-size: 14.5px;
+  color: var(--ops-muted);
+}
+
+/* Inside the chart stack the flex gap already pays for the space above, so the
+   headline only needs the extra air that makes it read as a break in the
+   stack rather than a caption belonging to the card above it. It is a change
+   of subject, so it wants noticeably more room above it than the cards keep
+   between themselves — and white space is what actually groups a page, with
+   the rule only confirming what the gap has already said.
+
+   **Read this as 64px, not 40.** The stack is a flex column with a 24px `gap`,
+   and a flex gap and a margin both apply, so the space above this heading is
+   the two added together — still well over twice what the cards keep between
+   themselves, which is what marks it as a chapter break rather than a
+   paragraph one. It is more than the headline at the top of the tab gets
+   (24 + 0) because that one follows the filter bar's hairline and this one
+   follows a white card with nothing to end it.
+
+   It was 144px while the rule sat on top of the heading, where the gap was
+   read as part of the break because a navy line closed it. Under the heading
+   the same gap is just an empty band, so it went back to the size that marks
+   a section rather than the size that had to *be* one. See
+   `.ops-headline-block`. */
+.ops-charts > .ops-headline-block {
+  margin-top: 40px;
+}
+
+/* A filter row inside the chart stack is spaced by the stack's own 24px gap,
+   so its standalone bottom margin would be paid twice — that doubling is what
+   left a conspicuous empty band between the "Bread statistics" rule and the
+   first card under it. The page-level filter bar at the top of the tab is not
+   a flex child of anything and keeps its own margin. */
+.ops-charts > .ops-filterbar {
+  margin-bottom: 0;
+  padding-bottom: 12px;
+}
+
+/* Store statistics' tiles sit inside the chart stack, whose 24px gap already
+   spaces them; their own margins on top of it left a band of 48px above the
+   row and 56px below, which the owner called "too many spaces". */
+.ops-charts > .ops-stats {
+  margin: 0;
+}
+
+/* Store statistics' pager: steps both store cards through the ranking five at
+   a time — "‹ Stores #6–10 of 42 ›" just above the first card, outside it.
+   Pulled into the stack's 24px gap so it sits on that card rather than
+   floating as a row of its own. The arrows are boxed so they read as buttons,
+   36px so they are a comfortable target on a phone. */
+.ops-charts > .ops-store-pager {
+  margin-bottom: -12px;
+}
+
+.ops-store-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.ops-pager-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--ops-line-strong);
+  border-radius: 8px;
+  background: var(--ops-surface);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ops-ink);
+  cursor: pointer;
+}
+
+.ops-pager-button:hover:not(:disabled) {
+  background: var(--ops-surface-sunken);
+}
+
+.ops-pager-button:disabled {
+  border-color: var(--ops-line);
+  color: var(--ops-line-strong);
+  cursor: default;
+}
+
+.ops-pager-position {
+  min-width: 132px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--ops-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0;
+  margin: 24px 0 32px;
+  border: 1px solid var(--ops-line);
+  border-radius: 10px;
+  background: var(--ops-surface);
+  overflow: hidden;
+}
+
+/* Hairline dividers drawn by each tile, as an outset shadow on its top and
+   left edges — it lands in the neighbouring tile's own area, so the two never
+   disagree about which of them owns the border. The tiles in the first row and
+   the first column throw theirs outside the container's padding box, where
+   `overflow: hidden` (which is also what rounds the corners) clips it, so the
+   outer edges stay a single hairline instead of doubling against the border.
+
+   The obvious alternative — a 1px `gap` over a container painted the line
+   colour — is what this used to be, and it had a defect that got worse the
+   narrower the page: painting the container paints every part of the grid no
+   tile lands on. Five figures over an auto-fit grid leave an orphan cell at
+   every column count that doesn't divide five, and at tablet width that was a
+   quarter of the row rendered as a solid grey block, which reads as a tile
+   that failed to load. Nothing is painted here but the tiles, so a short last
+   row is simply the card's own white. */
+.ops-stat {
+  padding: 14px 16px;
+  background: var(--ops-surface);
+  box-shadow: -1px 0 0 var(--ops-line), 0 -1px 0 var(--ops-line);
+}
+
+/* The drawer's four figures, in the drawer's narrower column. Pinned to two
+   columns rather than left to auto-fit: auto-fit lands on three at this width
+   and leaves the fourth tile alone on a row beside a bare patch of the grid's
+   own background, which reads as a tile that failed to render. */
+.ops-stats-compact {
+  grid-template-columns: repeat(2, 1fr);
+  margin: 0;
+}
+
+.ops-stat .ops-figure {
+  margin-top: 6px;
+}
+
+.ops-stat-note {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ops-muted);
+}
+
+.ops-stat-accent .ops-figure {
+  color: var(--ops-accent);
+}
+
+/* --- areas -------------------------------------------------------------- */
+
+.ops-areas {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.ops-area {
+  border: 1px solid var(--ops-line);
+  border-radius: 12px;
+  background: var(--ops-surface);
+  overflow: hidden;
+}
+
+/* An area with a truck out earns a heavier left edge — the one thing on the
+   page that should be findable without reading anything. */
+.ops-area-live {
+  border-left: 3px solid var(--ops-live);
+}
+
+.ops-area-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--ops-line);
+  background: var(--ops-surface-sunken);
+}
+
+.ops-area-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  color: var(--ops-ink);
+}
+
+.ops-area-metrics {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.ops-area-metric {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--ops-muted);
+}
+
+.ops-area-metric b {
+  font-size: 15px;
+  font-weight: 620;
+  color: var(--ops-ink);
+}
+
+.ops-area-idle {
+  padding: 18px;
+  font-size: 13px;
+  color: var(--ops-muted);
+}
+
+/* --- run table ---------------------------------------------------------- */
+
+/* The table scrolls inside the card rather than pushing the page sideways —
+   the card's own `overflow: hidden` (which is what rounds its corners) would
+   otherwise clip the far columns with no way to reach them. */
+.ops-runs-scroll {
+  overflow-x: auto;
+}
+
+/* `table-layout: fixed` with no width on any column is what makes the six
+   columns exactly equal: the browser divides the width evenly instead of
+   sizing each one to its longest cell, which otherwise gave the crew column
+   half the table and squeezed the money into the margin. The trade is that
+   content no longer widens its own column, so anything that can be long has to
+   wrap (see `.ops-crew-line`, `.ops-run-truck`) rather than run into its
+   neighbour. `min-width` is the floor the horizontal scroll kicks in at —
+   raise it whenever a column is added, or the equal shares get too narrow for
+   a money figure and every amount renders on two lines. */
+.ops-runs {
+  width: 100%;
+  min-width: 900px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.ops-runs th {
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--ops-line);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ops-faint);
+  white-space: nowrap;
+}
+
+.ops-runs td {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--ops-line);
+  color: var(--ops-ink-soft);
+  vertical-align: middle;
+}
+
+.ops-runs tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ops-runs tbody tr {
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.ops-runs tbody tr:hover {
+  background: var(--ops-accent-soft);
+}
+
+.ops-runs tbody tr.ops-run-selected {
+  background: var(--ops-accent-soft);
+  box-shadow: inset 3px 0 0 var(--ops-accent);
+}
+
+/* Wins over the tables' own `text-align: left` on headers, which is more
+   specific than a bare class — without this the column heading sits left while
+   its figures sit right. */
+.ops-num,
+.ops-runs th.ops-num,
+.ops-table th.ops-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Net is the one figure in the row that carries a colour. It's the number the
+   run is judged on, and the page's navy is already its accent — so this reads
+   as emphasis rather than as a status. Blue is not doing any work colour-blind
+   readers would miss: the column is headed "Net" and the figure is legible
+   whatever the colour renders as. It's the same `--ops-accent` the "Net
+   takings" tile at the top of the day uses, so the two agree on screen.
+
+   Qualified `.ops-runs td` rather than left as a bare `.ops-net`, for the same
+   reason `.ops-num` is: `.ops-runs td` is a class *and* an element, so it
+   outranks a lone class and the cell just stays ink-coloured. */
+.ops-runs td.ops-net {
+  font-weight: 650;
+  color: var(--ops-accent);
+}
+
+.ops-truck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--ops-ink);
+}
+
+/* The crew leads each run row, so it carries the row's weight: a shade larger
+   than the table's 13.5px, full ink, semibold — with the people in it on the
+   muted 12px `.ops-sub` line underneath. Same two-line shape the truck used to
+   have at the head of this column, one rung of emphasis apart so the eye takes
+   the crew first and reads the names only when it wants them. The truck beside
+   it is plain body weight, because it labels the crew's trip rather than
+   competing with it. (`.ops-truck` stays as it was — the stores list uses it
+   for a store name.) */
+.ops-crew {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--ops-ink);
+  overflow-wrap: anywhere;
+}
+
+/* Crew name and status pill on one line, wrapping to two when the column is
+   too narrow for both — which is the point of the wrap: the pill drops under
+   the name instead of stretching the column or being clipped by the fixed
+   layout. */
+.ops-crew-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+/* Wraps rather than `nowrap`: under `table-layout: fixed` a long truck name
+   with nowrap would spill straight over the Hours column instead of widening
+   its own. */
+.ops-run-truck {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--ops-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.ops-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ops-muted);
+}
+
+/*
+ * The "still out from this day" / "3 days out" line under a run's hours.
+ *
+ * Takes the accent ink rather than the muted grey the line above it uses: a run
+ * that outlived its start day is the exception on a board of same-day runs, and
+ * a reader who is not looking for it has to be able to catch it while scanning
+ * past. Not a pill — it belongs to the hours cell it qualifies, and a badge
+ * there would compete with the status pill two columns to its left.
+ */
+.ops-run-span {
+  color: var(--ops-accent);
+  font-weight: 600;
+}
+
+/* --- badges and pills --------------------------------------------------- */
+
+.ops-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ops-pill-live {
+  background: var(--ops-live-soft);
+  color: var(--ops-live);
+}
+
+.ops-pill-closed {
+  background: var(--ops-surface-sunken);
+  color: var(--ops-muted);
+  box-shadow: inset 0 0 0 1px var(--ops-line-strong);
+}
+
+.ops-pill-warn {
+  background: var(--ops-warn-soft);
+  color: var(--ops-warn);
+}
+
+/* The trip number, shown only from the second trip on — a "2" next to a truck
+   is the visible half of a rule that otherwise lives in run ids. */
+.ops-trip {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--ops-accent-soft);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--ops-accent);
+}
+
+.ops-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.ops-pill-live .ops-dot {
+  animation: ops-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ops-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(4, 120, 87, 0.45);
+  }
+  50% {
+    opacity: 0.75;
+    box-shadow: 0 0 0 4px rgba(4, 120, 87, 0);
+  }
+}
+
+/* The Live / Trends / Stores tab strip fades its content in on every switch.
+   All three panels stay mounted (see overview.tsx) and are toggled with
+   `display: none` rather than unmounted, so this animation is what it looks
+   like — no JS retrigger needed: a CSS animation doesn't run while its
+   element is display:none, so switching a panel back to visible replays it
+   from the start every time. A slide was considered and rejected: the three
+   tabs are different components at different heights (a table, a stack of
+   charts, a directory), so a horizontal slide would need both panels visible
+   mid-transition, which fights the point of keeping this simple. */
+.ops-tab-panel {
+  animation: ops-tab-fade 220ms ease;
+}
+
+@keyframes ops-tab-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-pill-live .ops-dot {
+    animation: none;
+  }
+
+  .ops-tab-panel {
+    animation: none;
+  }
+
+  .ops-spinner {
+    animation-duration: 2.4s;
+  }
+
+  .ops-panel-scrim,
+  .ops-panel-drawer,
+  .ops-receipt,
+  .ops-receipt-scrim {
+    transition: none;
+  }
+
+  .ops-dialog,
+  .ops-dialog-scrim {
+    animation: none;
+  }
+
+  /* The bar still fills — it is information, not decoration — it just stops
+     easing between the steps. */
+  .ops-progress-fill {
+    transition: none;
+  }
+}
+
+/* --- notices ------------------------------------------------------------ */
+
+.ops-notice {
+  display: flex;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ops-notice-warn {
+  background: var(--ops-warn-soft);
+  color: #7c4a06;
+  box-shadow: inset 0 0 0 1px rgba(180, 83, 9, 0.2);
+}
+
+.ops-notice-alert {
+  background: var(--ops-alert-soft);
+  color: #8f1d1d;
+  box-shadow: inset 0 0 0 1px rgba(185, 28, 28, 0.2);
+}
+
+/* Neither a warning nor an alert — "this will take a minute" is a fact about
+   what was asked for, not a problem with it, and amber would read as one. */
+.ops-notice-quiet {
+  background: var(--ops-surface-sunken);
+  color: var(--ops-ink-soft);
+  box-shadow: inset 0 0 0 1px var(--ops-line);
+}
+
+.ops-notice b {
+  font-weight: 650;
+}
+
+.ops-day-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+/* --- the run drawer ----------------------------------------------------- */
+
+.ops-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.ops-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 21;
+  width: min(560px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--ops-surface);
+  border-left: 1px solid var(--ops-line);
+  box-shadow: -16px 0 40px rgba(15, 23, 42, 0.1);
+}
+
+/* Slide-and-fade open/close, shared by the run panel and the Stores tab's
+   store panel — a modifier on top of .ops-scrim / .ops-drawer rather than
+   added to those base rules, since plenty of other drawers use the two base
+   classes without any JS-driven open/close of their own and would otherwise
+   be left permanently off-screen by a default closed position nothing ever
+   flips. One transition rule serves both directions: each panel toggles
+   `.open` on mount (after a frame, so there's a closed frame to animate away
+   from) and again just before it unmounts, holding itself on screen until the
+   reverse run finishes — see requestClose in run-panel.tsx and stores-tab.tsx. */
+.ops-panel-scrim {
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+
+.ops-panel-scrim.open {
+  opacity: 1;
+}
+
+.ops-panel-drawer {
+  transform: translateX(100%);
+  transition: transform 240ms ease;
+}
+
+.ops-panel-drawer.open {
+  transform: translateX(0);
+}
+
+.ops-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--ops-line);
+}
+
+.ops-drawer-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 0;
+  font-size: 19px;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  color: var(--ops-ink);
+}
+
+.ops-drawer-close {
+  height: 30px;
+  width: 30px;
+  flex-shrink: 0;
+  border: 1px solid var(--ops-line-strong);
+  border-radius: 7px;
+  background: var(--ops-surface);
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ops-muted);
+}
+
+.ops-drawer-close:hover {
+  background: var(--ops-surface-sunken);
+  color: var(--ops-ink);
+}
+
+/* Greys the whole store panel while its receipts are being read, so half-filled
+   tiles and an empty chart never pass for the store's real figures. The ✕ is
+   lifted above it: a slow connection must never trap the reader in a panel. */
+.ops-drawer-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(148, 163, 184, 0.45);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ops-ink);
+}
+
+/* The tabs' version of the same grey, `.ops-busy` over a positioned wrapper.
+   On Trends it covers everything below the filter bar,
+   while the runs, their receipts and the catalogs are still being read. The
+   filter bar sits outside it on purpose — a slow range must never stop the
+   reader picking another. The min-height gives the grey somewhere to be on
+   the first load, when nothing is drawn under it yet, and the label is
+   sticky so it stays in view on a long page scrolled halfway down. */
+.ops-trends-body {
+  position: relative;
+  min-height: 320px;
+}
+
+.ops-busy {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 4px;
+}
+
+.ops-busy-label {
+  position: sticky;
+  top: 40vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 120px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ops-ink);
+}
+
+/* On Stores it covers the directory while a search or a filter is being
+   drawn — the filtering itself is instant, drawing hundreds of rows is not.
+   It fades in only after 150ms, so a quick search that is done before then
+   never flashes grey on every keystroke. */
+.ops-stores-body {
+  position: relative;
+  min-height: 160px;
+}
+
+.ops-stores-body .ops-busy-label {
+  padding-top: 48px;
+}
+
+.ops-busy-delayed {
+  animation: ops-busy-in 150ms ease 150ms both;
+}
+
+@keyframes ops-busy-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ops-drawer-head .ops-drawer-close {
+  position: relative;
+  z-index: 3;
+}
+
+.ops-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ops-drawer-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  /* Pulls back part of .ops-drawer-body's own 20px of top padding. What opens
+     this drawer is a heading row, not a block of content, and the full
+     standoff under the header above left it floating. */
+  margin-top: -8px;
+}
+
+/* The same break, for a drawer that lays its blocks out as direct children of
+   the body rather than wrapping them in .ops-drawer-main — the Stores tab's
+   store panel is the one that does. Without it the store's details, its chart
+   and its receipt list run flush into each other, and the description under
+   the details reads as a subtitle of the heading below it.
+
+   Written as `> * + *` rather than section-to-section because what sits
+   between those sections is a chart card, which is not one. The run panel's
+   body has a single child (.ops-drawer-main), so nothing there matches. */
+.ops-drawer-body > * + * {
+  margin-top: 26px;
+}
+
+.ops-section > .ops-label {
+  margin-bottom: 10px;
+}
+
+.ops-section > .ops-notice {
+  margin-bottom: 12px;
+}
+
+/* A wider break than the drawer's usual 26px between sections — stacked on top
+   of it, not replacing it, via margin on top of the flex gap — plus a hairline
+   rule, the same weight the tables and cards use elsewhere on the page, so the
+   boundary between the tabbed figures above and the reference/meta sections
+   below is something you see, not just extra whitespace that could as easily
+   be a loading gap. */
+.ops-section-break {
+  /* 40px, up from 18, on the owner's call: the tabbed tables above end on a
+     figure row, and with only 18px the rule sat close enough to read as that
+     table's bottom border rather than the start of a new section. */
+  margin-top: 40px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ops-line);
+}
+
+/* The run drawer's totals heading at one end of the row and its Export button
+   at the other. The margin below repeats what `.ops-section > .ops-label`
+   gives a bare label, which doesn't reach through this wrapper. */
+.ops-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+/* Still an .ops-label — same tracked-out uppercase in the same faint ink as
+   every other label on the page — just larger, because this one names the
+   whole block of figures under it rather than a single one. */
+.ops-section-title {
+  font-size: 15px;
+}
+
+/* Sits at the far end of the totals heading's row (see .ops-section-head),
+   sized to it: the same 15px, so the two read as one row rather than a heading
+   with a control bolted beside it. The vertical padding is deliberately thin —
+   anything more makes the button, not the text, set the row's height, which
+   reads as a gap above the heading. Was a full-width block at the very bottom
+   of the drawer, which put it under six sections it has nothing to do with. */
+.ops-export-btn {
+  flex-shrink: 0;
+  padding: 2px 12px;
+  border: 1px solid var(--ops-accent);
+  border-radius: 6px;
+  background: var(--ops-accent-soft);
+  color: var(--ops-accent);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.ops-export-btn:hover:not(:disabled) {
+  background: var(--ops-accent);
+  color: #fff;
+}
+
+.ops-export-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* --- the summary-export dialog ------------------------------------------
+
+   "Export a summary" on the Live tab (components/period-export-dialog.tsx).
+   A centred card rather than a drawer, and that is the distinction the two
+   forms carry on this page: a drawer is a *place* you go into and read (a run,
+   a store), a dialog is one question asked and answered. This one is asked
+   from the day bar and is gone the moment it is answered.
+
+   Above the run drawer (21) and the receipt card (23) so it is usable
+   whatever is already open, and below the export progress overlay (30), which
+   has to cover it while the workbook is built. */
+.ops-dialog-scrim {
+  z-index: 24;
+  animation: ops-dialog-fade 160ms ease;
+}
+
+.ops-dialog {
+  position: fixed;
+  z-index: 25;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 22px 24px 24px;
+  border-radius: 14px;
+  background: var(--ops-surface);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.26);
+  transform: translate(-50%, -50%);
+  animation: ops-dialog-rise 180ms ease;
+}
+
+/* **Nothing inside a dialog is allowed to shrink; the dialog scrolls instead.**
+   Not a tidy-up — without it the per-bread dialog loses its row of figures
+   entirely on exactly the breads worth opening.
+
+   `.ops-dialog` is a flex column with a `max-height`, so when its content is
+   taller than the viewport the negative free space is taken out of its
+   children. Flexbox normally refuses to squash an item below its own content
+   (`min-height: auto`), **but only while that item's overflow is `visible`** —
+   and `.ops-stats` sets `overflow: hidden` to clip the tile dividers and round
+   its corners. That made the stat row the one shrinkable thing in the stack,
+   so it absorbed the whole overflow and collapsed to a hairline: present in
+   the DOM, zero pixels tall, and only on the dialogs long enough to overflow.
+   A bread with a crew chart, an area chart and thirty stores under it lost its
+   headline figures; a returned-only name with almost nothing in it kept them,
+   which is a confusing enough symptom to be worth this paragraph. */
+.ops-dialog > * {
+  flex-shrink: 0;
+}
+
+/* Wider than the export dialog, because what is in it is a chart rather than
+   a form: the split bar's name column, its bar and its two figure columns need
+   the room to stay the shape they are in the card behind, and the stores table
+   has four columns of its own. Still capped to the viewport with the same
+   32px of air, so it is a wide dialog on a laptop and a full-width one on a
+   phone. */
+.ops-dialog-wide {
+  width: min(720px, calc(100vw - 32px));
+}
+
+/* "Show all 214 stores", under a capped list. Wears the chart card's toggle
+   chrome — it is the same kind of thing, a control that changes how much of
+   one block you are looking at — but sits left-aligned under its table rather
+   than up in a heading, so it reads as the end of the list rather than as a
+   control over the dialog. `margin-right: auto` because the block is a flex
+   column: a stretched button would run the width of the dialog and read as a
+   primary action. */
+.ops-dialog-more {
+  margin-right: auto;
+}
+
+/* One of the dialog's three blocks — By crew, By area, Stores. The gap between
+   them is `.ops-dialog`'s own 16px flex gap; this only puts a little more air
+   under each title than a heading's own margin gives, so a block reads as a
+   heading with its figures rather than as two loose things. */
+.ops-dialog-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Sized and weighted like a chart card's `h3`, not like the page's uppercase
+   micro-label: these head a chart, and the swatched column headings directly
+   under them are already carrying small caps. */
+.ops-dialog-block-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 640;
+  color: var(--ops-ink);
+}
+
+@keyframes ops-dialog-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ops-dialog-rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -46%) scale(0.98);
+  }
+}
+
+.ops-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ops-dialog-head h2 {
+  margin: 4px 0 0;
+  font-size: 19px;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  color: var(--ops-ink);
+}
+
+.ops-dialog-note {
+  margin: -6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ops-muted);
+}
+
+/* The range row: the Trends tab's filter bar, boxed. Same label, same two
+   dropdowns, so the control reads identically in both places — only the
+   layout differs, because in a 520px dialog the second dropdown should fill
+   the line rather than leave a ragged gap after it. */
+.ops-dialog-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+/* The value dropdown takes whatever is left of the row. `min-width: 0` because
+   a <select> sizes itself to its widest <option> and would otherwise push the
+   row wider than the dialog on the longest month name. */
+.ops-dialog-range-value {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The calendar trigger is a full-width field rather than a chip in a filter
+   row — it stands in for the dropdown that would be in that slot, and a short
+   button floating in a wide gap reads as unfinished. */
+.ops-dialog-picker .ops-calendar-trigger {
+  width: 100%;
+}
+
+/* What is actually about to be exported, in the same two-line shape the day
+   bar states the day it is showing: the dates in full, then the size of the
+   job under them. Sunken rather than framed, so it reads as a readout and not
+   as another control. */
+.ops-dialog-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: var(--ops-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--ops-line);
+  font-size: 13px;
+}
+
+.ops-dialog-readout b {
+  font-size: 14px;
+  font-weight: 640;
+  color: var(--ops-ink);
+}
+
+.ops-dialog-readout span {
+  color: var(--ops-muted);
+}
+
+.ops-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.ops-dialog-cancel,
+.ops-dialog-confirm {
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ops-dialog-cancel {
+  border: 1px solid var(--ops-line-strong);
+  background: var(--ops-surface);
+  color: var(--ops-ink-soft);
+}
+
+.ops-dialog-cancel:hover:not(:disabled) {
+  background: var(--ops-surface-sunken);
+}
+
+.ops-dialog-confirm {
+  border: 1px solid var(--ops-accent);
+  background: var(--ops-accent);
+  color: #fff;
+}
+
+.ops-dialog-confirm:hover:not(:disabled) {
+  background: #1b3a9c;
+}
+
+.ops-dialog-cancel:disabled,
+.ops-dialog-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The loading overlay shown while the export workbook is built (see the
+   `exporting` branch in run-panel.tsx and period-export-dialog.tsx). Sits above
+   the drawer (z-index 21), its scrim (20) and the summary dialog (25), covering
+   the whole viewport so nothing behind it is clicked while the photos — or a
+   month of runs — are being pulled down. */
+.ops-export-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.ops-export-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 300px;
+  padding: 26px 32px;
+  border-radius: 12px;
+  background: var(--ops-surface);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.28);
+}
+
+.ops-export-modal p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ops-ink);
+  text-align: center;
+}
+
+.ops-export-modal .ops-sub {
+  display: block;
+  font-weight: 400;
+}
+
+.ops-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--ops-line);
+  border-top-color: var(--ops-accent);
+  animation: ops-spin 0.8s linear infinite;
+}
+
+/* A *determinate* bar under the spinner, and only where the total is known
+   before the work starts — the period export counts its runs first, so it can
+   say "43 of 210" honestly. The run export has no equivalent and keeps the
+   spinner alone rather than drawing a bar it would have to fake. A minute of
+   spinner with no bar says nothing about whether anything is happening. */
+.ops-progress {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ops-line);
+  overflow: hidden;
+}
+
+.ops-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--ops-accent);
+  transition: width 160ms ease;
+}
+
+@keyframes ops-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Run details / Run id's disclosure button — dressed as the section's own
+   .ops-label rather than a distinct control, with a caret doing the only job
+   of announcing it's clickable. `.ops-section > .ops-label` (the margin below
+   a bare label) doesn't reach through the button, so that spacing is repeated
+   here. */
+.ops-collapse-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.ops-collapse-toggle:hover .ops-label {
+  color: var(--ops-muted);
+}
+
+/* Bigger and in the accent colour rather than --ops-faint — this is the only
+   thing on the row signalling the label is a button at all, so it has to read
+   as a control, not as trailing punctuation on the label beside it. */
+.ops-collapse-caret {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ops-accent);
+  transition: transform 120ms ease, color 120ms ease;
+}
+
+.ops-collapse-toggle:hover .ops-collapse-caret {
+  color: var(--ops-ink);
+}
+
+.ops-collapse-caret.open {
+  transform: rotate(90deg);
+}
+
+/* Separates the run id from the Agents/Started/... grid above it once the
+   toggle is open — otherwise a single-cell grid reads as one more field in
+   the same row rather than a second, unrelated group. */
+.ops-meta-reference {
+  margin-top: 14px;
+}
+
+/* The run panel's Receipts / Inventory / Outcome / Collected / Expenses
+   switch — the same hairline-underline idea as .ops-tabs, scaled *up* rather than down: this is
+   the one control on the page that switches out an entire table, so it needs
+   to read as a control before it's read as a label. Bigger type, a heavier
+   rule, and the active tab in the accent colour rather than plain ink, so it
+   doesn't rely on weight alone to stand out from the row beside it. */
+.ops-subtabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--ops-line);
+  /* Five tabs in a drawer the width of a phone don't fit. They scroll sideways
+     rather than wrap onto a second row, which would double the height of the
+     control and leave the underline rule running through the middle of it.
+     The scrollbar itself is hidden — it would sit on top of the tab underline,
+     and on a touch device it isn't drawn until you already know to swipe.
+
+     What replaces it is a shadow at whichever end has more tabs behind it,
+     which is the *only* thing telling a reader on a phone that Expenses is
+     over there at all. Four background layers do it with no JS: two covers
+     attached `local` so they travel with the tabs and park over the shadow
+     when that end is reached, and two shadows attached `scroll` so they stay
+     pinned to the box. Every layer is spelled out in one `background`
+     shorthand — split across the longhand properties the four lists have to be
+     kept in the same order by hand, which is how one of them ends up applied
+     to the wrong layer. */
+  overflow-x: auto;
+  scrollbar-width: none;
+  background:
+    linear-gradient(to right, var(--ops-surface), rgba(255, 255, 255, 0)) left / 26px 100% no-repeat
+      local,
+    linear-gradient(to left, var(--ops-surface), rgba(255, 255, 255, 0)) right / 26px 100% no-repeat
+      local,
+    linear-gradient(to right, rgba(15, 23, 42, 0.16), rgba(15, 23, 42, 0)) left / 12px 100% no-repeat
+      scroll,
+    linear-gradient(to left, rgba(15, 23, 42, 0.16), rgba(15, 23, 42, 0)) right / 12px 100% no-repeat
+      scroll;
+}
+
+.ops-subtabs::-webkit-scrollbar {
+  display: none;
+}
+
+.ops-subtab {
+  flex-shrink: 0;
+}
+
+.ops-subtab {
+  padding: 10px 16px 14px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  font-size: 15.5px;
+  font-weight: 650;
+  color: var(--ops-muted);
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.ops-subtab:hover {
+  color: var(--ops-ink);
+}
+
+.ops-subtab.active {
+  border-bottom-color: var(--ops-accent);
+  color: var(--ops-accent);
+}
+
+/* All three subtabs are mounted at once, stacked in this one grid cell, so the
+   row sizes to whichever is tallest. Without it, the shortest tab's content
+   would sit at its own natural height and everything below — Run details, the
+   drawer's bottom edge — would jump on every switch. The inactive panels are
+   hidden with `visibility`, not `display: none`, because a display:none panel
+   is invisible to grid sizing too — it would stop contributing its height the
+   moment it's the one not showing, which is exactly the jump this exists to
+   prevent. */
+.ops-tabpanels {
+  display: grid;
+}
+
+.ops-tabpanel {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+
+.ops-tabpanel.active {
+  visibility: visible;
+}
+
+/* A run id, shown so it can be quoted when something has to be looked up by
+   hand. Long, mechanical, and not meant to be read at body size. */
+.ops-id {
+  font-size: 12px;
+}
+
+.ops-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px 20px;
+}
+
+.ops-meta div span {
+  display: block;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ops-faint);
+}
+
+.ops-meta div b {
+  font-weight: 560;
+  color: var(--ops-ink);
+  overflow-wrap: anywhere;
+}
+
+/* Inventory grows one column per batch, and both it and Outcome grow one
+   row per bread type — either can end up wider or taller than the drawer.
+   Same idea as .ops-runs-scroll: the table scrolls inside its own box, with
+   the browser's own scrollbar left visible along the bottom, rather than
+   pushing the drawer sideways or clipping the far columns with no way back
+   to them. */
+.ops-table-scroll {
+  overflow-x: auto;
+}
+
+/* Plain data tables inside the drawer. Same hairline treatment as the run
+   table, one size smaller. */
+.ops-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ops-table th {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--ops-line);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ops-faint);
+}
+
+.ops-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ops-line);
+  color: var(--ops-ink-soft);
+}
+
+.ops-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ops-table th:first-child,
+.ops-table td:first-child {
+  padding-left: 0;
+}
+
+.ops-table th:last-child,
+.ops-table td:last-child {
+  padding-right: 0;
+}
+
+.ops-table b {
+  font-weight: 620;
+  color: var(--ops-ink);
+}
+
+/* The table twin of the split bar: every figure column the same width, every
+   figure and heading centred in it, so the two views of one chart have the
+   same shape. Only the name column is left, to take what remains.
+
+   It is not merely *similar* to the chart, it is laid out from the chart's own
+   numbers (the `--splitbar-*` block up with the chart styles), so toggling
+   between the two moves nothing on screen: a cell is one figure column plus
+   the gap that precedes it, and that gap is spent as left padding, which puts
+   the centre of the cell exactly where the centre of the grid column was. The
+   `padding-right: 0` is what anchors the last column to the card's right edge
+   in both views — with padding there, every figure would sit half a step off
+   from the bar chart's.
+
+   **This block has to sit after `.ops-table`'s own rules, not with the chart
+   styles it belongs to.** `.ops-table th.ops-num` (right-aligned) and
+   `.ops-table th:last-child` (no outer padding) are class-class-element, the
+   same weight as these, so the tie is broken by source order alone — placed
+   earlier, the headings kept their right alignment while the cells below them
+   centred, which looked exactly as broken as it was. */
+.ops-table-even th.ops-num,
+.ops-table-even td.ops-num {
+  width: calc(var(--splitbar-col) + var(--splitbar-gap));
+  padding-left: var(--splitbar-gap);
+  padding-right: 0;
+  text-align: center;
+}
+
+/* Its heading row drops the page's uppercase micro-label for the chart's own
+   heading style, because in the chart those headings are the legend — a swatch
+   and a word in a column sized for the numbers below it, which uppercase and
+   0.07em of letter-spacing would overflow. The two header rows have to be the
+   same words at the same size, or the row under them starts somewhere else. */
+.ops-table-even th {
+  padding-top: var(--splitbar-head-pad);
+  padding-bottom: var(--splitbar-head-pad);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ops-muted);
+}
+
+.ops-table-even td {
+  padding-top: var(--splitbar-row-pad);
+  padding-bottom: var(--splitbar-row-pad);
+}
+
+/* An openable row, the table twin of `.ops-splitbar button.ops-barchart-row`:
+   the same tint under the pointer, from the same token, so switching a chart
+   to its Table view doesn't change what a row does or how it says so.
+
+   The click handler is on the `<tr>` and the row's first cell holds a real
+   button — a `<tr>` given `tabIndex` and `role="button"` stops being announced
+   as a row and takes the table down with it, where a button inside a cell is
+   simply a control in a cell. Enter and Space on that button raise a click
+   that bubbles to the row, so the two views share one handler and one
+   behaviour. */
+.ops-table tbody tr.ops-row-tap {
+  cursor: pointer;
+}
+
+.ops-table tbody tr.ops-row-tap:hover td {
+  background: var(--ops-accent-soft);
+}
+
+/* The keyboard's way in. Stripped of every button affordance except the
+   pointer: an underline or an accent colour would say "link" about the one
+   cell, where what is openable is the row — which the hover already says. */
+.ops-cell-tap {
+  appearance: none;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Focus is drawn on the row, not on the button inside it, so tabbing through
+   the table lights up the same thing hovering it does. The tint is the part
+   that has to land — the ring is an outline on a `<tr>`, which every current
+   browser draws but none is required to. */
+.ops-table tbody tr.ops-row-tap:has(.ops-cell-tap:focus-visible) td {
+  background: var(--ops-accent-soft);
+}
+
+.ops-table tbody tr.ops-row-tap:has(.ops-cell-tap:focus-visible) {
+  outline: 2px solid var(--ops-accent);
+  outline-offset: -2px;
+}
+
+.ops-feed {
+  display: flex;
+  flex-direction: column;
+}
+
+.ops-feed-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--ops-line);
+}
+
+.ops-feed-row:last-child {
+  border-bottom: none;
+}
+
+.ops-feed-store {
+  font-weight: 600;
+  color: var(--ops-ink);
+}
+
+.ops-feed-amount {
+  font-weight: 620;
+  color: var(--ops-ink);
+  white-space: nowrap;
+}
+
+.ops-feed-amount-credit {
+  color: var(--ops-alert);
+}
+
+/* Amount over payment tag, right-aligned — the phone's receipt list stacks the
+   same two things in the same order at the right of every row, and this is the
+   same list one screen bigger. `align-items: flex-end` rather than a
+   text-align, because the tag is an inline-flex pill that would otherwise sit
+   full-width in the column. The row's own `align-items: baseline` lines the
+   amount up with the store name above; the tag hangs below it. */
+.ops-feed-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* --- payment tag -------------------------------------------------------- */
+
+/* The payment method, copied from the phone's receipts list: a hairline
+   outline in the method's colour with the label in the same colour, and no
+   fill. That shape is what keeps it distinct from `.ops-pill` above, which is
+   filled and upper-cased and means something else entirely — a run's status,
+   not a receipt's payment. Confusing the two is the thing to avoid; matching
+   the phone is the thing to keep.
+ 
+   The colour comes through one `--tag-color` token so the *same* markup can be
+   drawn in either palette: on the board it resolves to the ink-and-navy
+   status colours, and inside `.ops-receipt` — which is a verbatim copy of the
+   phone's modal and re-declares the phone's palette as `--rc-*` — it resolves
+   to the phone's own greens and reds. One component, two contexts, no second
+   class name to keep in step.
+ 
+   The board gets the darker variants rather than the phone's brighter ones on
+   purpose: the phone's `accent` (#3c87f7) and `success` (#30a46c) sit around
+   3:1 on white, which is thin for 12px text on a page that is read all day.
+   The mapping is the phone's, method for method; only the shade differs. */
+.ops-tag {
+  --tag-color: var(--ops-muted);
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--tag-color);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 18px;
+  white-space: nowrap;
+  color: var(--tag-color);
+}
+
+/* Cash is the settled one, GCash the accent, cheque a caution because it can
+   still bounce, and partial the alert — it is the one method that leaves money
+   still owed. Credit is muted for the same reason it is on the phone: nothing
+   was taken, so there is nothing to colour. An unknown method the phone wrote
+   matches no rule here and falls back to the muted default above. */
+.ops-tag-cash {
+  --tag-color: var(--ops-live);
+}
+
+.ops-tag-gcash {
+  --tag-color: var(--ops-accent);
+}
+
+.ops-tag-cheque {
+  --tag-color: var(--ops-warn);
+}
+
+.ops-tag-partial {
+  --tag-color: var(--ops-alert);
+}
+
+.ops-tag-credit {
+  --tag-color: var(--ops-muted);
+}
+
+/* A voided receipt: red like the phone's Void tag, in the payment tag's slot. */
+.ops-tag-void {
+  --tag-color: var(--ops-alert);
+}
+
+/* The amount stays readable but struck through — still what was written, no
+   longer part of any figure on the page. */
+.ops-feed-row-void .ops-feed-amount,
+.ops-feed-row-void .ops-feed-amount-credit {
+  color: var(--ops-muted);
+  text-decoration: line-through;
+}
+
+.ops-more {
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ops-accent);
+}
+
+.ops-more:hover {
+  text-decoration: underline;
+}
+
+/* The run panel's Inventory heading row doubles as the "show dates & times"
+   switch. No button of its own on the page — the pointer and the hover ink are
+   what say the row can be clicked. */
+.ops-load-times-row {
+  cursor: pointer;
+}
+
+.ops-load-times-row:hover th {
+  color: var(--ops-muted);
+}
+
+/* Headings pinned to the top of their row, in both the Inventory and Outcome
+   tables. A table cell centres vertically by default, so once a load's date
+   and time made the row taller, "Bread" and "Total" floated down to the middle
+   while "Initial" and "Batch 1" stayed on the first line. */
+.ops-table .ops-load-times-align th {
+  vertical-align: top;
+}
+
+/* Takes up exactly the room the two date/time lines do, and shows nothing. */
+.ops-loaded-at-spacer {
+  visibility: hidden;
+}
+
+/* "Bread" is a button only so the keyboard can reach the switch; it must read
+   exactly like the headings beside it. */
+.ops-load-times-button {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: inherit;
+}
+
+/* When a load went on, under its column heading. Pulled off the heading's
+   uppercase micro-label: a date and a clock time in letter-spaced capitals
+   read as a code rather than as a time. */
+.ops-table th .ops-loaded-at {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  font-weight: 450;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ops-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * The receipt card — a copy of the phone's receipt detail modal.
+ *
+ * The one thing on this tab that deliberately does not wear the board's
+ * ink-and-navy style. It re-declares the *mobile* palette as --rc-* tokens
+ * rather than borrowing --ops-*, so the two can never drift into each other.
+ * These values are apps/mobile/src/constants/theme.ts verbatim — change them
+ * together or not at all.
+ * ------------------------------------------------------------------------- */
+.ops-receipt {
+  --rc-text: #000;
+  --rc-secondary: #60646c;
+  --rc-border: #d8d9e0;
+  --rc-success: #30a46c;
+  --rc-success-bg: #cdf0dd;
+  --rc-danger: #e5484d;
+  --rc-danger-bg: #f8d3d3;
+  /* Colors.accent on the phone — what the proof-of-payment file name is drawn
+     in there, so the same link reads the same here. */
+  --rc-accent: #3c87f7;
+  /* Colors.warning — only the cheque payment tag uses it. */
+  --rc-warning: #e2a336;
+
+  position: fixed;
+  z-index: 23;
+  left: 16px;
+  top: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(420px, calc(100vw - 32px));
+  max-height: 88vh;
+  padding: 20px;
+  border: 2px solid var(--rc-success);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--rc-text);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+
+  /* A fade-and-pop rather than the drawers' edge-to-edge slide — this card
+     floats centred instead of living flush against a side, so closed keeps
+     the same translateY(-50%) that centres it (still required for the
+     proof-photo modal's containing-block reasoning above) and only adds a
+     small scale on top, rather than a translateX that would have to un-centre
+     and re-centre itself across the transition. */
+  transform: translateY(-50%) scale(0.96);
+  opacity: 0;
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+
+.ops-receipt.open {
+  transform: translateY(-50%) scale(1);
+  opacity: 1;
+}
+
+.ops-receipt-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 22;
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.ops-receipt-scrim.open {
+  opacity: 1;
+}
+
+.ops-receipt-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ops-receipt-title h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 700;
+  color: var(--rc-text);
+}
+
+.ops-receipt-title p {
+  margin: 2px 0 0;
+  color: var(--rc-secondary);
+}
+
+.ops-receipt-close {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--rc-text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ops-receipt-date {
+  margin: 0;
+  color: var(--rc-secondary);
+  font-size: 13px;
+}
+
+/* Everything below the name and time scrolls as one, so a forty-line receipt
+   never pushes the totals off the bottom — the same arrangement as the phone. */
+.ops-receipt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  min-height: 0;
+
+  /* The scrollbar belongs in the card's right padding, not on top of the
+     blocks. The body reaches back out to the card's edge (-20px, exactly the
+     padding it sits in) and pays that space back as its own padding, so the
+     bar draws against the card border with a gap in front of it instead of
+     running down the amounts column. Keep the two numbers adding up to the
+     card's padding, near enough that the blocks still line up with the header
+     above them. */
+  margin-right: -20px;
+  padding-right: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rc-border) transparent;
+}
+
+/* Same bar for WebKit/older Chrome, which ignores scrollbar-width. */
+.ops-receipt-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ops-receipt-body::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--rc-border);
+}
+
+.ops-receipt-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ops-receipt-block {
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.ops-receipt-block h4 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 700;
+}
+
+.ops-receipt-block-order {
+  background: var(--rc-success-bg);
+}
+
+.ops-receipt-block-order h4 {
+  color: var(--rc-success);
+}
+
+.ops-receipt-block-returns {
+  background: var(--rc-danger-bg);
+}
+
+.ops-receipt-block-returns h4 {
+  color: var(--rc-danger);
+}
+
+.ops-receipt-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ops-receipt-none {
+  margin: 0;
+  color: var(--rc-secondary);
+}
+
+.ops-receipt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ops-receipt-row-label b {
+  display: block;
+  font-weight: 600;
+}
+
+.ops-receipt-row-label span {
+  color: var(--rc-secondary);
+  font-size: 13px;
+}
+
+.ops-receipt-row-amount {
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.ops-receipt-negative {
+  color: var(--rc-danger);
+}
+
+.ops-receipt-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rc-border);
+}
+
+.ops-receipt-total-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ops-receipt-total-row span:first-child {
+  color: var(--rc-secondary);
+}
+
+.ops-receipt-total-row-strong {
+  padding-top: 6px;
+  border-top: 1px solid var(--rc-border);
+  font-size: 17px;
+}
+
+.ops-receipt-due {
+  color: var(--rc-danger);
+}
+
+/* Inside the receipt card the payment tag wears the phone's palette, not the
+   board's — the card is a copy of what the agent had in their hand, so its tag
+   is the colour they saw. Only the four tokens change; the pill itself is the
+   same `.ops-tag` rule as in the feeds above. */
+.ops-receipt .ops-tag-cash {
+  --tag-color: var(--rc-success);
+}
+
+.ops-receipt .ops-tag-gcash {
+  --tag-color: var(--rc-accent);
+}
+
+.ops-receipt .ops-tag-cheque {
+  --tag-color: var(--rc-warning);
+}
+
+.ops-receipt .ops-tag-partial {
+  --tag-color: var(--rc-danger);
+}
+
+.ops-receipt .ops-tag-credit {
+  --tag-color: var(--rc-secondary);
+}
+
+/* A voided receipt: the phone draws the card's border in danger red instead of
+   the finalized green, and puts a red banner under the date. */
+.ops-receipt.ops-receipt-void {
+  border-color: var(--rc-danger);
+}
+
+.ops-receipt-void-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--rc-danger-bg);
+  color: var(--rc-danger);
+  font-size: 13px;
+}
+
+/*
+ * Proof of payment — the phone's section, on the desktop card. A link showing
+ * the file name, opening a centred modal, exactly as the phone does.
+ */
+.ops-receipt-proof {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ops-receipt-proof h4 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 700;
+  color: var(--rc-secondary);
+}
+
+.ops-receipt-proof-error {
+  margin: 0;
+  color: var(--rc-danger);
+}
+
+/* A <button> rather than an <a> because it opens an overlay instead of
+   navigating, reset to look like the link it behaves as. Truncated on one line,
+   the web equivalent of the phone's numberOfLines={1}. */
+.ops-receipt-proof-link {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--rc-accent);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-receipt-proof-link:hover {
+  text-decoration: underline;
+}
+
+.ops-receipt-proof-link:focus-visible {
+  outline: 2px solid var(--rc-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.ops-receipt-ref {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--rc-secondary);
+  font-size: 12px;
+}
+
+.ops-receipt-ref b {
+  font-weight: 500;
+  color: var(--rc-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* The photo, centred over the page. Above both drawers — this is the innermost
+   overlay here, and the same arrangement as payment-proof-view-modal.tsx on the
+   phone: a dimmed backdrop, a white card, the file name and a close above the
+   image. */
+.ops-proof-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.ops-proof-card {
+  /* Redeclared rather than inherited: this card is portalled to document.body
+     to escape .ops-receipt's transform, so it sits outside the block that
+     declares these. Same values, same source — apps/mobile/src/constants/theme.ts. */
+  --rc-text: #000;
+  --rc-secondary: #60646c;
+  --rc-danger: #e5484d;
+
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  /* The phone's MaxContentWidth and its 92% cap, so the card is the same shape
+     on a desktop as it is in the driver's hand. */
+  max-width: 800px;
+  max-height: 92%;
+  padding: 24px;
+  border-radius: 24px;
+  background: #fff;
+  color: var(--rc-text);
+}
+
+.ops-proof-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ops-proof-head b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-proof-close {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--rc-text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ops-proof-image {
+  /* min-height: 0 lets the image shrink inside the flex column instead of
+     forcing the card past its 92% cap on a tall portrait photo. */
+  min-height: 0;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #f0f0f3;
+}
+
+/* The feed rows are buttons now (they open the receipt card), so the button
+   defaults have to be reset back to what the divs looked like. */
+.ops-feed-row {
+  width: 100%;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-feed-row > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ops-feed-row-open {
+  background: var(--ops-tint, rgba(0, 0, 0, 0.04));
+}
+
+/* ---------------------------------------------------------------------------
+ * Narrow screens.
+ *
+ * The board's whole shape is "a wide column of dense figures", which is the
+ * one shape a phone doesn't have. Everything below either gives a control room
+ * to be tapped or gives a number room to be read — nothing is hidden that the
+ * page is read *for*. Where something has to go, it goes from a table that is
+ * already scrolling sideways (so it is still reachable) rather than from the
+ * page.
+ *
+ * Two breakpoints, matching index.css: 720px is a small tablet or a phone
+ * turned sideways, 560px is a phone held upright.
+ * ------------------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  /* Both gutters equal here. The 8px right inset in the base rule is a gutter
+     between the content and a *desktop* scrollbar's track; touch scrollbars
+     are overlays, so on a phone it just reads as the page sitting off-centre. */
+  .ops-view {
+    padding-right: var(--page-pad);
+  }
+
+  .ops-tabs {
+    margin-bottom: 18px;
+  }
+
+  /* Edge to edge — a 560px drawer over a 600px screen leaves a 40px strip of
+     the board showing, which reads as a misplaced panel rather than a layer. */
+  .ops-drawer {
+    width: 100vw;
+  }
+
+  .ops-drawer-head {
+    padding: 16px var(--page-pad) 14px;
+  }
+
+  .ops-drawer-body {
+    padding: 16px var(--page-pad) 0;
+  }
+
+  /* Drops the Hours column (now the 3rd) first — crew (which carries the
+     status pill), truck, receipts and the money columns are what the table is
+     read for, and they survive at any width. Nothing is lost: the run
+     drawer shows the hours in full for whichever run is tapped. Count from the
+     header row in live-board.tsx if the columns ever change again — this
+     selector is positional. */
+  .ops-runs th:nth-child(3),
+  .ops-runs td:nth-child(3) {
+    display: none;
+  }
+
+  /* Its own row, full width. Capped at 340px it would sit next to the area
+     dropdown with barely room for a store name in either. */
+  .ops-search {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  .ops-filterbar {
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  /* Never wider than the screen it is placed against. The trigger's left edge
+     is used as the popover's left edge (see DateRangePicker), which is clamped
+     in JS — this caps the width so a 280px calendar can't overhang a 320px
+     phone even when it starts flush at the left margin. */
+  .ops-calendar-popover {
+    width: min(280px, calc(100vw - 16px));
+  }
+
+  .ops-receipt {
+    left: 8px;
+    width: calc(100vw - 16px);
+  }
+
+  .ops-proof-scrim {
+    padding: 12px;
+  }
+
+  .ops-proof-card {
+    padding: 16px;
+    border-radius: 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  /* The hint under each tab name ("Trucks out today") is the first thing to go:
+     three of them side by side are wider than the screen, and the tab names on
+     their own already say which is which. */
+  .ops-tab span {
+    display: none;
+  }
+
+  .ops-tab {
+    flex: 1;
+    padding: 10px 8px 12px;
+    text-align: center;
+    font-size: 14px;
+  }
+
+  .ops-daybar {
+    gap: 14px;
+  }
+
+  .ops-daybar h1 {
+    font-size: 21px;
+  }
+
+  /* Taller than the 32px they get on a desktop — ‹ and › are the whole of the
+     day navigation, and a 32px target between two others is a mis-tap. */
+  .ops-daynav > button,
+  .ops-daynav .ops-daynav-date {
+    height: 40px;
+    min-width: 40px;
+  }
+
+  /* Icon only. Four labelled buttons don't fit a phone's width, and a
+     calendar glyph is the one icon on this page that needs no word beside
+     it — the button's aria-label still says "Pick a date". */
+  .ops-daynav-date span {
+    display: none;
+  }
+
+  /* The day navigation and the export drop onto two rows, and the export goes
+     full width there. It keeps the 40px height its neighbours get on a phone:
+     the only reason it is 32px on a desktop is to match them. */
+  .ops-daybar-tools {
+    width: 100%;
+  }
+
+  .ops-daybar-export {
+    width: 100%;
+    height: 40px;
+  }
+
+  /* Nearly the whole screen, and scrolling inside itself: a phone has no room
+     for a card floating in a margin, and the range row plus a calendar plus two
+     notices is taller than a short landscape window. */
+  .ops-dialog {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 24px);
+    padding: 18px 18px 20px;
+  }
+
+  /* Two dropdowns and a label don't fit one line at 320px, so the value
+     dropdown takes a line of its own rather than being squeezed to a few
+     characters of "September 2026". */
+  .ops-dialog-range {
+    flex-wrap: wrap;
+  }
+
+  .ops-dialog-range-value {
+    flex: 1 1 100%;
+  }
+
+  /* Stacked, and the confirm on top — on a phone the thumb sits at the bottom
+     of the screen, which is the worst place for the destructive-adjacent half
+     of a pair. */
+  .ops-dialog-actions {
+    flex-direction: column-reverse;
+  }
+
+  .ops-dialog-cancel,
+  .ops-dialog-confirm {
+    height: 42px;
+  }
+
+  /* Two columns, pinned rather than left to auto-fit. The day has five figures
+     and auto-fit would put the fifth alone on a row beside a bare patch of the
+     grid's own background — the same thing .ops-stats-compact exists to
+     prevent in the drawer. */
+  .ops-stats {
+    grid-template-columns: repeat(2, 1fr);
+    margin: 18px 0 24px;
+  }
+
+  .ops-stat {
+    padding: 12px 13px;
+  }
+
+  /* Down from 24px. These are the page's headline numbers and they still have
+     to be the biggest thing in their tile, but a five-digit peso total at 24px
+     wraps inside a half-width tile, and a wrapped total reads as two numbers. */
+  .ops-figure {
+    font-size: 20px;
+  }
+
+  .ops-figure-small {
+    font-size: 16px;
+  }
+
+  .ops-areas {
+    gap: 20px;
+  }
+
+  .ops-area-head {
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .ops-area-metrics {
+    gap: 6px 16px;
+  }
+
+  .ops-empty {
+    padding: 28px 16px;
+  }
+
+  /* The section break keeps its weight — it is the one thing on a phone that
+     says which of the two subjects you are scrolled into — but not its full
+     desktop scale, where the air is a bigger share of a short screen. 32 + the
+     stack's 24px gap, the phone's share of the same sum the desktop rule above
+     explains. */
+  .ops-charts > .ops-headline-block {
+    margin-top: 32px;
+  }
+
+  .ops-headline {
+    font-size: 26px;
+  }
+
+  .ops-headline-note {
+    font-size: 13.5px;
+  }
+
+  .ops-chart-card {
+    padding: 14px 12px 16px;
+  }
+
+  .ops-chart-head {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .ops-chart-toggle {
+    height: 34px;
+  }
+
+  /* The label moves onto its own line above the bar. Kept beside it, a
+     minmax(80px, 160px) column takes half a phone's width and leaves the bars
+     too short to compare — which is the only thing this form is for. */
+  .ops-barchart-row {
+    grid-template-columns: 1fr auto;
+    gap: 4px 10px;
+  }
+
+  .ops-barchart-label {
+    grid-column: 1 / -1;
+  }
+
+  /* Narrower figure columns, and the table twin follows them down — the
+     variables are the thing the two views share. */
+  .ops {
+    --splitbar-col: 52px;
+    --splitbar-gap: 8px;
+  }
+
+  /* The name column goes, so the headings only have the bar to clear. Note
+     that the two views stop lining up here, and that is unavoidable: the
+     chart's label takes a second line while the table's stays in its first
+     column, so a chart row is taller than its table row whatever padding they
+     share. */
+  .ops-splitbar .ops-barchart-row,
+  .ops-splitbar-head {
+    grid-template-columns: 1fr repeat(var(--splitbar-count), var(--splitbar-col));
+    row-gap: 4px;
+  }
+
+  .ops-splitbar-gap {
+    grid-column: 1 / 2;
+  }
+
+  .ops-legend {
+    gap: 6px 14px;
+  }
+
+  /* The run/store drawers' figure grids sit inside a full-width drawer here,
+     so they get the page's own tile padding rather than the drawer's. */
+  .ops-drawer-head h2 {
+    font-size: 17px;
+  }
+
+  .ops-subtab {
+    padding: 10px 12px 13px;
+    font-size: 14.5px;
+  }
+
+  .ops-receipt {
+    padding: 16px;
+    max-height: 92svh;
+  }
+
+  .ops-receipt-block {
+    padding: 12px;
+  }
+}
+
+/* Same reasoning as the matching rule in index.css: under 16px, focusing a
+   field zooms iOS Safari into the page and never zooms back out. The Overview
+   tab's own fields are 13px by design on a desktop, so the bump is scoped to
+   touch pointers rather than to width alone. */
+@media (max-width: 900px) and (pointer: coarse) {
+  .ops-search,
+  .ops-select {
+    height: 40px;
+    font-size: 16px;
+  }
+
+  /* A 30px cell in a seven-across grid is about 40px wide and 30 tall — small
+     enough that picking the 17th gets you the 18th. The popover is capped at
+     the screen width, so the extra height is the only room there is to give. */
+  .ops-calendar-day {
+    height: 38px;
+    font-size: 14px;
+  }
+}
+
+
+/* --- Donut chart ---------------------------------------------------------- */
+
+/* Ring on the left, its key on the right; the key drops under the ring when
+   the card is too narrow for both. */
+.ops-donut {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px 40px;
+  padding: 8px 0 4px;
+}
+
+.ops-donut-ring {
+  position: relative;
+  flex: none;
+  width: 208px;
+  height: 208px;
+  margin: 0 auto;
+}
+
+.ops-donut-ring circle {
+  transition: opacity 120ms ease, stroke-width 120ms ease;
+}
+
+.ops-donut-center {
+  position: absolute;
+  inset: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.ops-donut-center strong {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--ops-ink);
+  font-variant-numeric: proportional-nums;
+}
+
+.ops-donut-center span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ops-muted);
+}
+
+.ops-donut-key {
+  flex: 1 1 300px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ops-donut-key li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ops-line);
+  font-size: 13px;
+  transition: opacity 120ms ease;
+}
+
+.ops-donut-key li:first-child {
+  border-top: 1px solid var(--ops-line);
+}
+
+.ops-donut-key-dim {
+  opacity: 0.45;
+}
+
+.ops-donut-key-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ops-ink);
+}
+
+.ops-donut-key b {
+  color: var(--ops-ink);
+  font-weight: 620;
+}
+
+.ops-donut-key-share {
+  text-align: right;
+  color: var(--ops-muted);
+}
+
+/* The key for LineChart's dashed `partialLast` segment (Top stores over time). */
+.ops-dash-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--ops-muted);
+}
+
+.ops-dash-note svg {
+  flex-shrink: 0;
+  stroke: var(--ops-ink-soft);
+  stroke-width: 2;
+}

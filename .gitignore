@@ -1,0 +1,17 @@
+# Node / React Native
+node_modules/
+dist/
+build/
+.expo/
+.expo-shared/
+coverage/
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

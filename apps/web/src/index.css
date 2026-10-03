@@ -1,0 +1,1174 @@
+:root {
+  --text: #3f3a45;
+  --text-h: #08060d;
+  --bg: #fff;
+  --bg-element: #f4f3f6;
+  --border: #e5e4e7;
+  --accent: #aa3bff;
+  /* The one red in the dashboard, used for both error text and the log-out
+     button. Dark enough to carry white text at 4.9:1, so it clears AA either
+     way round. */
+  --danger: #d13438;
+  --danger-hover: #b02b2f;
+
+  /* The inset between the page's content and the window, in one place because
+     two files depend on it: .dashboard-main pays it out as padding, and the
+     Overview tab cancels it with a negative margin so it can run edge to edge
+     and put the inset back on its own scrolling content instead (see .ops in
+     overview.css). They must always be the same number, so they read the same
+     token rather than each hardcoding 24px. Narrower screens shrink it in the
+     media queries at the foot of this file — a 24px gutter either side of a
+     360px phone is a seventh of the screen spent on nothing. */
+  --page-pad: 24px;
+
+  font: 16px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+}
+
+#root {
+  min-height: 100svh;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-h);
+  margin: 0 0 8px;
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+input {
+  font: inherit;
+}
+
+.auth-screen {
+  min-height: 100svh;
+  display: flex;
+  /* Column, because the sign-out notice is a sibling above the card rather than
+     part of it. As a row the two would sit side by side. */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+}
+
+/* Why the app signed you out, shown above the login card. Amber rather than red:
+   nothing has gone wrong — an account was used somewhere else, or an
+   administrator changed something — and a red alarm over a working login screen
+   reads as a fault to report. */
+.auth-notice {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid #f0d48a;
+  border-left: 3px solid #d9a520;
+  border-radius: 8px;
+  background: #fdf8ec;
+  font-size: 13px;
+  line-height: 150%;
+  color: var(--text);
+}
+
+.auth-notice-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auth-notice strong {
+  color: var(--text-h);
+}
+
+.auth-notice-dismiss {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.auth-notice-dismiss:hover {
+  background: #f4e9cf;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.field input {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-element);
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--text-h);
+}
+
+.field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.auth-card button[type='submit'] {
+  height: 44px;
+  border: none;
+  border-radius: 8px;
+  background: var(--text-h);
+  color: var(--bg);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.auth-card button[type='submit']:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--text);
+  text-align: center;
+  margin-top: 4px;
+}
+
+/* The shell is exactly one viewport tall and never scrolls itself — scrolling
+   happens inside .dashboard-main alone. That is what keeps the sidebar (nav +
+   the account block at its foot) in place however long the page under it gets. */
+.dashboard-shell {
+  height: 100svh;
+  overflow: hidden;
+  display: flex;
+}
+
+.dashboard-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px 12px;
+  border-right: 1px solid var(--border);
+}
+
+
+.dashboard-brand {
+  padding: 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+/* Takes the spare height, which is what pushes .dashboard-account to the foot
+   of the sidebar. Scrolls on its own if the nav ever outgrows a short window,
+   so the sidebar as a whole still doesn't. */
+.dashboard-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dashboard-nav-item {
+  height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.dashboard-nav-item:hover {
+  background: var(--bg-element);
+}
+
+.dashboard-nav-item.active {
+  background: var(--bg-element);
+  color: var(--text-h);
+}
+
+.dashboard-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The foot of the sidebar: who is signed in, and the way out. */
+.dashboard-account {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+/* An email is longer than a 220px sidebar, so it ellipsizes rather than
+   widening the column or wrapping onto three lines. The full address is in the
+   element's title. */
+.dashboard-user {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-account button {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: var(--danger);
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+}
+
+.dashboard-account button:hover {
+  border-color: var(--danger-hover);
+  background: var(--danger-hover);
+}
+
+.dashboard-main {
+  flex: 1;
+  min-height: 0;
+  padding: var(--page-pad);
+  overflow: auto;
+  /* Touch scrolling inside a flex child that also holds an internally
+     scrolling board (.ops-view) — without this the momentum scroll can be
+     handed to the wrong box on iOS. */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* --- the narrow-screen header ------------------------------------------
+   Hidden entirely above the breakpoint: on a wide screen the sidebar is
+   permanently on the page and there is nothing for this bar to open. */
+.dashboard-topbar {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  height: 52px;
+  padding: 0 8px 0 4px;
+  padding-right: max(8px, env(safe-area-inset-right));
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.dashboard-menu-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 44px square — the smallest comfortable touch target, and the reason this
+     bar is 52px tall rather than the 36px the buttons elsewhere use. */
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+}
+
+.dashboard-menu-button:active {
+  background: var(--bg-element);
+}
+
+/* Three rules drawn with one element: the bar itself plus its two
+   pseudo-elements, so the button holds no extra markup. */
+.dashboard-menu-icon,
+.dashboard-menu-icon::before,
+.dashboard-menu-icon::after {
+  display: block;
+  width: 18px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-h);
+}
+
+.dashboard-menu-icon {
+  position: relative;
+}
+
+.dashboard-menu-icon::before,
+.dashboard-menu-icon::after {
+  content: '';
+  position: absolute;
+  left: 0;
+}
+
+.dashboard-menu-icon::before {
+  top: -6px;
+}
+
+.dashboard-menu-icon::after {
+  top: 6px;
+}
+
+/* Which section is showing. The sidebar answers this on a wide screen with
+   its highlighted row; behind a closed drawer nothing else would. */
+.dashboard-topbar-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text-h);
+}
+
+/* The dimmed page behind the open drawer. Always in the DOM so the fade has
+   both an in and an out frame to run between, and `display: none` above the
+   breakpoint so the wide layout never sees it. */
+.dashboard-scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(8, 6, 13, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.dashboard-scrim.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Fades in each sidebar destination's root element on mount — the same idea
+   as .ops-tab-panel's fade for the Overview sub-tabs (overview.css), applied
+   here to the sidebar's four sections instead. Put on the class directly
+   rather than a wrapper: every one of these pages (OverviewPage,
+   BreadTypesPage, ReferenceListsPage, SettingsPage) already renders a single
+   root element and already mounts fresh on every switch — dashboard-shell.tsx
+   swaps them with a plain `{section === 'x' && <Page />}`, no `key` needed —
+   so there's nothing a wrapper div would add here. */
+.dashboard-page-fade {
+  animation: dashboard-page-fade 220ms ease;
+}
+
+@keyframes dashboard-page-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-page-fade {
+    animation: none;
+  }
+}
+
+.page-placeholder {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.btn-primary {
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--text-h);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The filled confirm button for something that removes or switches off. Same
+   shape as .btn-primary so the two can swap places in one dialog without the
+   layout moving; only the fill changes, because the colour is the whole
+   warning. */
+.btn-danger {
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.btn-danger:hover {
+  background: var(--danger-hover);
+}
+
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A retry sitting inside a sentence of error text — a button by behaviour, a
+   link by appearance, because a 36px pill mid-paragraph breaks the line. */
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--danger);
+  text-decoration: underline;
+}
+
+/* An account that exists but can't sign in. Stated in words as well as colour —
+   a coloured cell alone leaves a reader guessing which state is which. */
+.team-off {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.team-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.team-checkbox input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  flex: none;
+  accent-color: var(--text-h);
+}
+
+.team-checkbox small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.field select {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-element);
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--text-h);
+}
+
+.field textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-element);
+  font-size: 15px;
+  font-weight: 400;
+  font-family: inherit;
+  color: var(--text-h);
+  resize: vertical;
+}
+
+.field textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 420px;
+}
+
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+}
+
+.settings-row-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.catalog-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+}
+
+.catalog-hint {
+  text-align: left;
+  margin: -12px 0 16px;
+}
+
+.page-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-secondary {
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.table-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-element);
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.table-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.table-unit-cell {
+  display: flex;
+  gap: 6px;
+}
+
+.table-unit-cell input {
+  width: 72px;
+  flex-shrink: 0;
+}
+
+/* The unit dropdown ("Tray" / "Box" / "Piece") took whatever width the cell
+   had left, which on a phone was narrow enough to clip its own value to a
+   single letter. Both halves of the cell now have a floor, and the table's
+   min-width (below) is what makes room for them. */
+.table-unit-cell select {
+  min-width: 92px;
+}
+
+.add-row-button {
+  margin-top: 12px;
+}
+
+.catalog-row-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.modal-warning {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(209, 52, 56, 0.08);
+  font-size: 13px;
+  text-align: left;
+  color: #d13438;
+}
+
+.bread-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.bread-table th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.bread-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-h);
+}
+
+.bread-table tr:last-child td {
+  border-bottom: none;
+}
+
+.bread-table-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bread-table-actions button {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.bread-table-actions button.danger {
+  border-color: #d13438;
+  color: #d13438;
+}
+
+.bread-table-actions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.row-number-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.row-number-col .drag-handle {
+  cursor: grab;
+  color: var(--text);
+  opacity: 0.5;
+  user-select: none;
+}
+
+.row-number-col .drag-handle:active {
+  cursor: grabbing;
+}
+
+.row-number-col .row-number {
+  display: inline-block;
+  min-width: 16px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.row-number-col .drag-handle + .row-number {
+  margin-left: 8px;
+}
+
+.bread-table tr.dragging {
+  opacity: 0.4;
+}
+
+/* A single line at the exact gap the dragged row will drop into — the row's
+   top edge if it lands above this row, the bottom edge if it lands below —
+   never both, so it reads as "the gap between two rows" and not "this row". */
+.bread-table tr.drag-over-before td {
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+
+.bread-table tr.drag-over-after td {
+  box-shadow: inset 0 -3px 0 var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Crews (the Agents section of the reference lists page)
+
+   One table holding two levels: a crew, then the people in it indented
+   underneath. The nesting is carried by an indent on the name cell rather than
+   by a nested <table>, so every row keeps the same column grid and the drag,
+   number and action columns stay in line down the whole list.
+   --------------------------------------------------------------------------- */
+
+.crew-group-row td {
+  background: var(--bg-element);
+  font-weight: 600;
+}
+
+.crew-group-name {
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+/* The row that says an agent's crew no longer exists — should never appear
+   from this page, so it is coloured as the problem it is. */
+.crew-orphan-row td {
+  color: #d13438;
+}
+
+/* The indent is what makes "in this crew" readable at a glance. Everything a
+   member row starts with moves right together — the drag handle, the number and
+   the name — so the whole row reads as sitting under the crew above it. */
+.crew-agent-cell {
+  padding-left: 32px;
+}
+
+/* The number is a crew's "1, 2, 3" and an agent's "1, 2, 3" in the same column,
+   so without the indent the two levels read as one flat list. The indent is on
+   the cell, not on the number, so the drag handle in edit mode moves with it —
+   a handle left at the crew's margin reads as belonging to the crew's row, and
+   the thing being grabbed should sit under the thing it drags. 12px cell
+   padding + 16px = the 28px the number starts at. */
+.crew-agent-row .row-number-col {
+  padding-left: 28px;
+}
+
+.crew-agent-row .row-number-col .row-number {
+  opacity: 0.6;
+}
+
+/* Sized to the dropdown rather than sharing the name column's stretch, so a
+   long crew name can't squeeze the name input to nothing. */
+.crew-move-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.crew-select {
+  min-width: 140px;
+}
+
+.crew-add-row td {
+  padding-top: 6px;
+  padding-bottom: 10px;
+}
+
+.crew-add-agent {
+  height: 30px;
+  margin-left: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 6, 13, 0.4);
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.modal-card-wide {
+  max-width: 480px;
+}
+
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.review-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.review-item:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.review-item h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.review-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-element);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.review-badge-removed {
+  color: #d13438;
+}
+
+.review-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review-diff-row {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.review-diff-row s {
+  color: var(--text);
+  opacity: 0.65;
+}
+
+.review-diff-label {
+  width: 48px;
+  flex-shrink: 0;
+  color: var(--text);
+}
+
+/* The Settings review lists one field per item rather than one record per
+   item, so its before/after values stack instead of sitting beside a label —
+   the receipt ending message is several lines long and pre-wrap has to keep
+   those breaks visible, exactly as .settings-row does. */
+.review-value {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--text-h);
+  white-space: pre-wrap;
+}
+
+.review-value s,
+.review-value em {
+  color: var(--text);
+  opacity: 0.65;
+}
+
+.modal-card h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.modal-actions button[type='button'] {
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+.modal-actions button[type='submit'] {
+  height: 40px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--text-h);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.modal-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Wraps a data table that is wider than a phone. The table keeps its natural
+   column widths and scrolls sideways inside this box, rather than either
+   squeezing every column to illegibility or pushing the whole page sideways
+   so the nav scrolls off with it. Same idea as .ops-runs-scroll on the
+   Overview tab. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Only while the table is being edited. A row of inputs has a width below
+   which you can't read what you typed, so the box scrolls instead — but the
+   read-only table is three short columns that fit a phone perfectly well, and
+   forcing the same floor on it would push Unit off the edge for no reason.
+   `:has()` is how the sheet tells the two apart without the pages having to
+   pass their edit state down into a class name. */
+.table-scroll .bread-table:has(.table-input) {
+  /* Enough for a readable name, a full price, both halves of the unit and the
+     reorder/delete buttons. Squeezed below this the inputs still *work* —
+     they just show three characters of what you typed, which on a price is
+     the difference between checking a figure and guessing at it. */
+  min-width: 660px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Narrow screens.
+ *
+ * Two breakpoints, and they answer different questions:
+ *
+ * - **900px** is where the 220px sidebar stops paying for itself. It becomes a
+ *   drawer over the page, opened from a header bar that only exists below this
+ *   width. Kept in step by hand with `NarrowQuery` in dashboard-shell.tsx,
+ *   which needs the same number in JS for the things CSS can't answer.
+ * - **560px** is a phone held upright. Below it the gutters shrink again and
+ *   the header's title and buttons stack.
+ * ------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  :root {
+    --page-pad: 16px;
+  }
+
+  .dashboard-topbar {
+    display: flex;
+  }
+
+  .dashboard-scrim {
+    display: block;
+  }
+
+  /* Out of the flow and over the page. `position: fixed` rather than absolute
+     because .dashboard-shell is `overflow: hidden` — an absolute drawer would
+     be clipped away at translateX(-100%) instead of merely being off-screen,
+     and would never slide back in. */
+  .dashboard-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 31;
+    width: 264px;
+    max-width: 82vw;
+    /* The 20px/12px the shorthand gives it as a static column, plus whatever
+       the notch and the home indicator need. Written out per side because the
+       shorthand can't add the insets in. */
+    padding-top: calc(20px + env(safe-area-inset-top));
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    padding-left: calc(12px + env(safe-area-inset-left));
+    border-right: 1px solid var(--border);
+    background: var(--bg);
+    transform: translateX(-100%);
+    transition: transform 240ms ease;
+  }
+
+  .dashboard-sidebar.open {
+    transform: translateX(0);
+  }
+
+  /* Roomier than the 36px they get in the permanent sidebar — these are
+     tapped with a thumb here, not clicked. */
+  .dashboard-nav-item {
+    height: 44px;
+    font-size: 15px;
+  }
+
+  .dashboard-account button {
+    height: 44px;
+  }
+
+  .page-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-sidebar,
+  .dashboard-scrim {
+    transition: none;
+  }
+}
+
+@media (max-width: 560px) {
+  :root {
+    --page-pad: 12px;
+  }
+
+  h1 {
+    font-size: 19px;
+  }
+
+  /* A full-width row each, so a two-button header ("Discard changes" /
+     "Review changes") doesn't force either label to wrap mid-word. */
+  .page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .page-header-actions {
+    flex-wrap: wrap;
+  }
+
+  /* Two buttons ("Discard changes" / "Review changes") share the row equally
+     rather than either label wrapping mid-word. */
+  .page-header-actions button {
+    flex: 1;
+    min-width: 140px;
+    height: 40px;
+  }
+
+  /* A lone "Edit", though, stays its own size. Stretched across the page it
+     reads as the primary action of the screen, which it isn't — it's the way
+     into editing a list that is the actual content. */
+  .page-header-actions button:only-child {
+    flex: 0 0 auto;
+  }
+
+  .catalog-sections {
+    gap: 40px;
+  }
+
+  .catalog-row-actions {
+    flex-wrap: wrap;
+  }
+
+  /* Comfortably tappable, and tightened horizontally so Edit + Delete still
+     fit in the actions column of a table that is already scrolling. */
+  .bread-table-actions button {
+    height: 36px;
+    padding: 0 12px;
+  }
+
+  .modal-overlay {
+    padding: 12px;
+  }
+
+  .modal-card {
+    /* The tall modals here (Review changes, with a row per edit) would
+       otherwise run off both ends of a phone with no way to reach the
+       confirm button. */
+    max-height: calc(100svh - 24px);
+    overflow-y: auto;
+    padding: 20px;
+  }
+
+  .review-list {
+    max-height: none;
+  }
+
+  .modal-actions button[type='button'],
+  .modal-actions button[type='submit'] {
+    flex: 1;
+    height: 44px;
+  }
+}
+
+/* iOS Safari zooms the whole page in when a focused field's text is under
+   16px, and never zooms back out — which is how a tap on a table cell leaves
+   the dashboard permanently magnified and scrolled sideways. The fields on the
+   Overview tab (.ops-search, .ops-select) are covered by the matching rule in
+   overview.css. Scoped to pointer: coarse so a desktop window merely dragged
+   narrow keeps the smaller type it was designed with. */
+@media (max-width: 900px) and (pointer: coarse) {
+  .table-input,
+  .field input,
+  .field select,
+  .field textarea {
+    font-size: 16px;
+  }
+
+  .table-input {
+    height: 40px;
+  }
+}

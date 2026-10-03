@@ -1,0 +1,64 @@
+rules_version = '2';
+
+// Cloud Storage holds exactly one kind of file: the proof-of-payment photo a
+// phone attaches to a GCash or cheque receipt. Everything else in this project
+// is Firestore documents.
+//
+// Two things worth knowing, both the same as firestore.rules:
+//
+//   1. The emulator enforces these rules exactly like the real bucket does, so
+//      test rule changes locally — that is the fast loop, no deploy needed.
+//
+//   2. Storage rules default to **deny**. There is no catch-all block at the
+//      bottom of this file because there doesn't need to be one: a path with no
+//      matching allow is refused. Adding a new kind of file means adding a
+//      match block, and forgetting one fails safe.
+//
+// Deploy with `npm run deploy:rules`, which sends these alongside the Firestore
+// rules and indexes.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // paymentProofs/{receiptId}.jpg — one object per receipt, at a path the
+    // phone composes from the receipt id it already minted.
+    //
+    // That naming is what makes the upload safe to repeat: re-sending the same
+    // photo overwrites the same object instead of creating a second one, which
+    // is the same property `setDoc` at a known id gives every Firestore upload
+    // (see docs/sync-design.md, rule 1). A random object name per attempt would
+    // leave orphaned megabytes behind on every retry.
+    match /paymentProofs/{fileName} {
+
+      // Any signed-in account may read. The dashboard has to resolve a download
+      // URL for a photo some other phone uploaded, so scoping reads to the
+      // uploader would break the only screen that shows them.
+      allow read: if request.auth != null;
+
+      // Writes are limited to the account whose work it is — the same check
+      // `firestore.rules` makes with `createdByUid` on every run document, and
+      // it fails the same way for the same reason: rows abandoned by one agent
+      // are refused until that agent signs back in, at which point Settings'
+      // "Try sending refused records again" clears them.
+      //
+      // `update` is allowed, not just `create`, and that matters: a retry
+      // re-uploads to a path that already exists, and to Storage that is an
+      // update. A create-only rule would look stricter and would in fact reject
+      // every retry of a write that had already half-landed.
+      //
+      // The size cap is a backstop, not the real control — lib/payment-proof.ts
+      // already resizes to 1280px on the longest edge, which lands around 150 KB.
+      // This is here so a bug on the phone can't fill the bucket.
+      allow create, update: if request.auth != null
+                            && request.resource.size <= 8 * 1024 * 1024
+                            && request.resource.contentType.matches('image/.*')
+                            && request.resource.metadata.createdByUid == request.auth.uid;
+
+      // Refused outright, exactly like deletes under /runs. Nothing in this app
+      // ever removes an uploaded record, and a rule that cannot delete cannot be
+      // talked into deleting. Clearing receipts on a phone deletes that phone's
+      // local copies only (see deleteAllPaymentProofs) — the server keeps its.
+      allow delete: if false;
+    }
+  }
+}

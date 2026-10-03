@@ -1,0 +1,264 @@
+rules_version = '2';
+
+// Security rules are the ONLY thing protecting your data. The Firebase config
+// shipped inside the app is public, so anyone can attempt to read your database
+// — these rules decide what actually succeeds.
+//
+// Two things worth knowing:
+//
+//   1. The emulator enforces these rules exactly like the real cloud does. If a
+//      read works locally it will work deployed, and vice versa. So test rule
+//      changes locally — that is the fast loop, no deploy needed.
+//
+//   2. Rules are NOT filters. `allow read: if ... ` doesn't hide the rows that
+//      fail; a query that could return even one forbidden document is rejected
+//      outright. Write queries that match the rule.
+//
+// Deploy rule changes on their own with `npm run deploy:rules` — that takes a
+// few seconds, unlike a full deploy.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Blocks self-service sign-up from throwaway/scanner email domains before
+    // they can ever get a "mobile" role doc. This does NOT stop someone from
+    // creating a raw Auth account directly against the Identity Toolkit API
+    // (that isn't something Firestore rules can govern) — but it does stop
+    // that account from ever writing anything, because every write rule below
+    // that matters (runs, in particular) requires a real "mobile" role doc to
+    // exist first. Caught a real incident: repeated sign-ups from
+    // *@example.com writing directly into /runs, bypassing the app entirely.
+    function isDisposableEmail(email) {
+      return email.lower().matches(
+        '.*@(example|test|mailinator|guerrillamail|tempmail|10minutemail|yopmail|trashmail|dispostable|fakeinbox|sharklasers)[.](com|org|net)$'
+      );
+    }
+
+    // A dashboard account that may CHANGE the catalogs, as opposed to read
+    // them. Everything a manager sets up — bread prices, areas, trucks, crews
+    // and the receipt settings — is editable only by an administrator: the same
+    // `admin: true` flag on users/{uid} that gates the Team page, and one only
+    // the Admin SDK can ever write (see the /users rules at the foot of this
+    // file). Ordinary dashboard staff still read all of it.
+    //
+    // `get('admin', false)` rather than `.admin`, because a user document
+    // written before the flag existed has no such key and reading a missing key
+    // is an error, not a false.
+    function isDashboardAdmin() {
+      let account = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return account.role == 'dashboard' && account.get('admin', false) == true;
+    }
+
+    // Default: refuse everything. Any collection not explicitly allowed below
+    // is locked. This is intentional — it means forgetting to write a rule
+    // fails safe (nothing works) instead of failing open (everything is public).
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // As POS collections get built, add a block per collection ABOVE this
+    // comment. The pattern for "only signed-in staff may touch this" is:
+    //
+    //   match /orders/{orderId} {
+    //     allow read, write: if request.auth != null;
+    //   }
+    //
+    // and for "each user only sees their own records":
+    //
+    //   match /users/{userId} {
+    //     allow read, write: if request.auth != null
+    //                        && request.auth.uid == userId;
+    //   }
+
+    // The reference lists the Inventory setup screen reads: which area a truck
+    // serves, which truck it is, and which crew is aboard. Dashboard-owned —
+    // the manager maintains them, mobile only reads.
+    //
+    // Trucks and agents used to be typed into each phone and kept in local
+    // storage. That made every id device-local, so nothing uploaded could be
+    // grouped by truck at all; moving them here is what gives `truckId`,
+    // `agentGroupId` and `agentIds` a shared meaning across devices.
+    //
+    // Same read/write split as breadTypes: any signed-in account may read,
+    // only a dashboard ADMINISTRATOR may write. (The emulator seed script uses
+    // the Admin SDK, which bypasses these rules entirely.)
+    match /areas/{areaId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isDashboardAdmin();
+    }
+
+    match /trucks/{truckId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isDashboardAdmin();
+    }
+
+    // A crew. Agents are never picked one at a time any more — a truck is
+    // assigned a whole group, and every agent belongs to exactly one. The
+    // group's id is what a run records alongside the member ids it captured,
+    // so "which crew was out" survives the group later being renamed or having
+    // people moved in and out of it.
+    match /agentGroups/{groupId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isDashboardAdmin();
+    }
+
+    // One person, and the `groupId` of the crew they ride with. Nothing
+    // server-side enforces that the group exists — a rule that did would need
+    // a get() per write and would still lose the race against a group being
+    // deleted. The dashboard is the only writer and deletes a group's agents
+    // along with it (see apps/web/src/lib/agent-groups.ts).
+    match /agents/{agentId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isDashboardAdmin();
+    }
+
+    // A run: one truck, one area, one crew, one business day — and,
+    // in its subcollections, every ledger entry and finalized receipt from
+    // that day. This is the grouping the whole sync design is built on; see
+    // docs/sync-design.md.
+    //
+    // Reads are open to any signed-in account on purpose. The route view needs
+    // to see that *another* truck already visited a store today, including
+    // which truck, so restricting reads to your own runs would break it.
+    // Writes are limited to the account that created the record.
+    //
+    // IMPORTANT: `update` is allowed, not just `create`. Every upload is a
+    // setDoc at an id the phone chose, so a retry re-sends the identical
+    // document — and to Firestore, a setDoc over an existing document is an
+    // update. A create-only rule would look stricter and would in fact reject
+    // every retry, turning a transient network failure into a permanent one.
+    //
+    // Deletes are refused outright at every level: nothing in this app ever
+    // needs to remove an uploaded record, and a rule that can't delete can't
+    // be talked into deleting.
+    match /runs/{runId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+                            && request.resource.data.createdByUid == request.auth.uid
+                            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'mobile';
+      allow delete: if false;
+
+      // stockEntries/{entryId} and receipts/{receiptId}.
+      match /{document=**} {
+        allow read: if request.auth != null;
+        allow create, update: if request.auth != null
+                              && request.resource.data.createdByUid == request.auth.uid
+                              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'mobile';
+        allow delete: if false;
+      }
+    }
+
+    // The SAME receipts, reachable by collection-group query.
+    //
+    // This is not a second permission — it is the same read, written in the one
+    // form Firestore requires for `collectionGroup('receipts')`. A rule nested
+    // under /runs/{runId} authorises reads *at that path*; a collection-group
+    // query is not at that path, so it is refused by a rule that looks like it
+    // already covers it. Only a recursive-wildcard prefix matches one.
+    //
+    // What needs it: the dashboard's store history — every receipt for one
+    // store, across every truck and every day. Reading run by run instead would
+    // mean opening every run ever recorded to answer one question about one
+    // shop. The composite index it queries against (customerId, createdAt DESC)
+    // is already declared in firestore.indexes.json.
+    //
+    // Read-only on purpose, and narrower than the block above: no write clause
+    // here at all, so uploads keep going through the run path where the
+    // createdByUid check lives.
+    match /{path=**}/receipts/{receiptId} {
+      allow read: if request.auth != null;
+    }
+
+    // Stores. Unlike runs these are shared business data that every truck both
+    // reads and writes — an agent creates a store on their phone and every
+    // other device needs it. Conflicts are last-write-wins by design (see
+    // docs/route-tracking-design.md), so any signed-in account may write.
+    //
+    // Deleting is refused because deletes here are *soft*: the client sets
+    // `deleted: true` and bumps `updatedAt`. A hard delete would be invisible
+    // to the "everything changed since I last looked" query the phones sync
+    // with, so an offline device would never learn the store was removed.
+    match /customers/{customerId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // The catalog of bread products (name, price, packaging unit) — NOT stock
+    // counts. Dashboard administrators manage it; mobile only ever reads it,
+    // to populate its own local pickers. Any signed-in account of either role
+    // may read; only a dashboard account carrying `admin: true` may write —
+    // see isDashboardAdmin() above.
+    match /breadTypes/{breadTypeId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isDashboardAdmin();
+    }
+
+    // Price snapshots for bread sold before a price change, kept separate
+    // from breadTypes so editing the current price never touches old returns
+    // still owed at what they actually sold for. Same read/write rule as
+    // breadTypes — a dashboard administrator manages it, mobile only reads.
+    match /returnedBreadTypes/{returnedBreadTypeId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isDashboardAdmin();
+    }
+
+    // Business-wide settings (business name, contact number, receipt ending
+    // message) — a single doc at settings/business, edited from the
+    // dashboard's Settings page and read by mobile to build printed receipts.
+    // Same read/write split as breadTypes: any signed-in account may read,
+    // only a dashboard administrator may write.
+    match /settings/{settingId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && isDashboardAdmin();
+    }
+
+    // Which browser currently holds a dashboard account — one document per
+    // dashboard user, holding the random id of the browser that signed in last
+    // (see claimDashboardSession in firebase/functions/src/dashboard-users.ts).
+    //
+    // Every signed-in dashboard tab watches its OWN document and signs itself
+    // out the moment the id stops being its own, which is what stops several
+    // people sharing one password and working at the same time.
+    //
+    // Read your own, write none. The write rule is the load-bearing half: if a
+    // browser could write here it could simply award itself the claim, or evict
+    // somebody else, and the whole rule would be a suggestion. Only Cloud
+    // Functions write it, through the Admin SDK, which bypasses these rules —
+    // so `if false` locks out every client without locking out the one writer
+    // that is supposed to have it.
+    match /dashboardSessions/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // Every account is tagged "mobile" or "dashboard" and only that one app
+    // will let it sign in — the mobile app and web dashboard are two separate
+    // audiences sharing one Firebase project, not one shared user pool. Both
+    // apps read their own doc right after sign-in and reject (sign back out)
+    // on a mismatch.
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // Mobile's sign-up screen is the only client-side path that ever creates
+      // one of these, and it can only ever tag itself "mobile" — a client can
+      // never create a "dashboard" doc, and `hasOnly(['role'])` means it can
+      // never smuggle an `admin: true` alongside one either.
+      //
+      // Dashboard accounts are created by the client's own administrator on the
+      // dashboard's Team page, which goes through a Cloud Function using the
+      // Admin SDK — that bypasses these rules, which is exactly why the rules
+      // here can stay this strict. Those docs carry `role: 'dashboard'` plus
+      // `admin`, `displayName`, `email`, `createdAt` and `createdBy`; `admin`
+      // is what gates the Team page and every function behind it.
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.role == 'mobile'
+                    && request.resource.data.keys().hasOnly(['role'])
+                    && !isDisposableEmail(request.auth.token.email);
+
+      // A role is permanent once set — no account can promote itself later.
+      allow update, delete: if false;
+    }
+  }
+}

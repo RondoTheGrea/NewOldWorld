@@ -1,0 +1,13 @@
+# Emulator logs — regenerated on every run, never worth committing
+*-debug.log
+firebase-debug.*.log
+
+# Saved emulator data (see `npm run emulators:save`)
+emulator-data/
+
+# Copied here from apps/web/dist by scripts/prepare-hosting.mjs on every
+# deploy — Firebase Hosting requires its public dir to live inside this
+# folder, so this is a build artifact, not source.
+web-dist/
+
+node_modules/

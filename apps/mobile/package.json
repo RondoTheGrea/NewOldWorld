@@ -1,0 +1,51 @@
+{
+  "name": "mobile",
+  "main": "expo-router/entry",
+  "version": "1.0.0",
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-firebase/app": "^26.3.2",
+    "@react-native-firebase/app-check": "^26.3.2",
+    "expo": "~57.0.11",
+    "expo-constants": "~57.0.9",
+    "expo-dev-client": "~57.0.10",
+    "expo-file-system": "~57.0.2",
+    "expo-font": "~57.0.1",
+    "expo-image-manipulator": "~57.0.10",
+    "expo-image-picker": "~57.0.9",
+    "expo-linking": "~57.0.5",
+    "expo-router": "~57.0.11",
+    "expo-splash-screen": "~57.0.5",
+    "expo-sqlite": "~57.0.1",
+    "expo-symbols": "~57.0.2",
+    "expo-system-ui": "~57.0.2",
+    "firebase": "^12.17.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.2",
+    "react-native-bluetooth-classic": "^1.73.0-rc.17",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-web": "~0.21.0",
+    "with-rn-bluetooth-classic": "^1.0.5"
+  },
+  "devDependencies": {
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
+    "@emnapi/wasi-threads": "^1.2.3",
+    "@types/react": "~19.2.2",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.1",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "start:cloud": "node ./scripts/start-cloud.mjs",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "lint": "expo lint"
+  },
+  "private": true
+}
