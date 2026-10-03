@@ -45,7 +45,7 @@ list. When helping:
   `lib/business-day.ts` exists in both `apps/mobile/src` and `apps/web/src`, and
   that duplication is deliberate until the package is set up. If you change one,
   change the other.
-- **One Firebase project, `REPLACE-WITH-NEW-PROJECT-ID`**, in **`asia-southeast1`**. It is
+- **One Firebase project, `newoldworld-b8f5d`**, in **`asia-southeast1`**. It is
   currently dev, staging and production at once. Details in
   `firebase/CLAUDE.md`.
 - **The phone is the author of every record; the dashboard is a reader.**

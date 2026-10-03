@@ -26,7 +26,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const Bucket = 'gs://REPLACE-WITH-NEW-PROJECT-ID.firebasestorage.app';
+const Bucket = 'gs://newoldworld-b8f5d.firebasestorage.app';
 const configPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'storage-cors.json');
 const args = ['storage', 'buckets', 'update', Bucket, `--cors-file=${configPath}`];
 

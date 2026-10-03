@@ -6,14 +6,14 @@
     "emulators:ui": "npm --prefix functions run build && node scripts/emulators.mjs emulators:start --project demo-newoldworld --only auth,firestore,functions,storage",
     "emulators:save": "node scripts/save-emulator-data.mjs --project demo-newoldworld",
     "emulators:fresh": "npm --prefix functions run build && node scripts/emulators.mjs --reset emulators:start --project demo-newoldworld",
-    "deploy": "firebase deploy --project REPLACE-WITH-NEW-PROJECT-ID",
-    "deploy:rules": "firebase deploy --project REPLACE-WITH-NEW-PROJECT-ID --only firestore:rules,firestore:indexes,storage",
-    "deploy:functions": "firebase deploy --project REPLACE-WITH-NEW-PROJECT-ID --only functions",
-    "deploy:hosting": "firebase deploy --project REPLACE-WITH-NEW-PROJECT-ID --only hosting",
+    "deploy": "firebase deploy --project newoldworld-b8f5d",
+    "deploy:rules": "firebase deploy --project newoldworld-b8f5d --only firestore:rules,firestore:indexes,storage",
+    "deploy:functions": "firebase deploy --project newoldworld-b8f5d --only functions",
+    "deploy:hosting": "firebase deploy --project newoldworld-b8f5d --only hosting",
     "make-admin": "node scripts/make-admin.mjs",
     "make-admin:cloud": "node scripts/make-admin.mjs --cloud",
     "storage:cors": "node scripts/storage-cors.mjs",
-    "logs": "firebase functions:log --project REPLACE-WITH-NEW-PROJECT-ID"
+    "logs": "firebase functions:log --project newoldworld-b8f5d"
   },
   "dependencies": {
     "firebase-admin": "^13.0.2"

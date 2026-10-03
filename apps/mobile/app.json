@@ -27,8 +27,7 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.BLUETOOTH_SCAN",
-        "android.permission.BLUETOOTH_ADVERTISE",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.BLUETOOTH_ADVERTISE"
       ]
     },
     "web": {
@@ -51,7 +50,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow NewOldWorld to access your camera to attach payment proof photos."
+          "cameraPermission": "Allow NewOldWorld to access your camera to attach payment proof photos.",
+          "microphonePermission": false
         }
       ],
       "./plugins/withReleaseSigning.js",

@@ -21,7 +21,7 @@ const expoCli = path.join(mobileDir, 'node_modules', 'expo', 'bin', 'cli');
 console.log(
   [
     '',
-    '  Starting against the REAL Firebase project (REPLACE-WITH-NEW-PROJECT-ID).',
+    '  Starting against the REAL Firebase project (newoldworld-b8f5d).',
     '  Anything you do now — accounts, orders — is real cloud data.',
     '',
     '  Use plain `npm start` to go back to the local emulators.',

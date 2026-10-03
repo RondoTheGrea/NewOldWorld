@@ -29,7 +29,7 @@ project, the rules, the emulators and deploying. The phone is documented in
 
 ## The project
 
-- Project id: `REPLACE-WITH-NEW-PROJECT-ID` (see `firebase/.firebaserc`). Emulators instead run
+- Project id: `newoldworld-b8f5d` (see `firebase/.firebaserc`). Emulators instead run
   as `demo-newoldworld` — the `demo-` prefix makes Firebase treat it as an offline
   demo project, so **no `firebase login` is needed** for local dev. This id must
   match `projectId` in `apps/mobile/src/lib/firebase.ts`, or users created by the
@@ -150,7 +150,7 @@ them, production rejects the query), IAM//invoker permissions, secrets via
 `firebase.json` — when a query needs a composite index, add it there and
 `deploy:rules`, don't just click the console link.
 
-`REPLACE-WITH-NEW-PROJECT-ID` is currently the **only** cloud project, so it is dev/staging.
+`newoldworld-b8f5d` is currently the **only** cloud project, so it is dev/staging.
 Create a separate production project before real customer data exists.
 
 Cloud state this project needs (copied from an earlier client's repo, so check

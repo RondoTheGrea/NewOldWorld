@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "626354182259",
+    "project_id": "newoldworld-b8f5d",
+    "storage_bucket": "newoldworld-b8f5d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:626354182259:android:f1c141e185b40706ddb206",
+        "android_client_info": {
+          "package_name": "com.ronaldean.newoldworld"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBtAULtX4-sqRrXYlGirWQ6XxZGsyjS3Mc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

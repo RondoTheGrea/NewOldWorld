@@ -114,7 +114,7 @@ function requireCloudConfig() {
       [
         `Cannot connect to the real Firebase project — missing config: ${missing.join(', ')}.`,
         '',
-        'Fix: open the Firebase console for project REPLACE-WITH-NEW-PROJECT-ID,',
+        'Fix: open the Firebase console for project newoldworld-b8f5d,',
         'go to Project Settings > General > Your apps > Web app, copy the',
         'firebaseConfig values, and paste them into apps/mobile/.env.',
         '',

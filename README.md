@@ -12,4 +12,4 @@
 
 - Local emulators: `cd firebase` then `npm install` and `npm run emulators`
 - Functions build: handled from `firebase/functions`
-- Deploy: `cd firebase` then `npm run deploy` (targets project `REPLACE-WITH-NEW-PROJECT-ID`)
+- Deploy: `cd firebase` then `npm run deploy` (targets project `newoldworld-b8f5d`)

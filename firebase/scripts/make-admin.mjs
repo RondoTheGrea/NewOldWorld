@@ -8,7 +8,7 @@
 // alternative is talking a non-technical owner through the Firebase console.
 //
 //   npm run make-admin -- owner@theirbusiness.com          (emulators)
-//   npm run make-admin:cloud -- owner@theirbusiness.com    (REPLACE-WITH-NEW-PROJECT-ID)
+//   npm run make-admin:cloud -- owner@theirbusiness.com    (newoldworld-b8f5d)
 //
 // If the account doesn't exist it is created, and a password-setup link is
 // printed for you to send them. If it already exists it is promoted, and
@@ -24,7 +24,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import process from 'node:process';
 
-const CLOUD_PROJECT = 'REPLACE-WITH-NEW-PROJECT-ID';
+const CLOUD_PROJECT = 'newoldworld-b8f5d';
 const DEMO_PROJECT = 'demo-newoldworld';
 
 const args = process.argv.slice(2);

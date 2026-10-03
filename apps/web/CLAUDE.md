@@ -1,7 +1,7 @@
 # apps/web — the dashboard
 
 The manager's browser app: **Vite + React + TypeScript**, Firebase JS SDK,
-talking to the same `REPLACE-WITH-NEW-PROJECT-ID` project the phones do. Everything the
+talking to the same `newoldworld-b8f5d` project the phones do. Everything the
 dashboard reads from `/runs` is **read-only by rule** — the phone is the author
 of every record, the server is the reader.
 
@@ -14,7 +14,7 @@ The phone is documented in `apps/mobile/CLAUDE.md`; the backend, rules,
 emulators and deploys in `firebase/CLAUDE.md`.
 
 Run: `cd apps/web && npm install && npm run dev` (emulators) or
-`npm run dev:cloud` (the real `REPLACE-WITH-NEW-PROJECT-ID` project). Lint: `npm run lint`
+`npm run dev:cloud` (the real `newoldworld-b8f5d` project). Lint: `npm run lint`
 (oxlint). Build: `npm run build`.
 
 ## Which backend the dashboard talks to

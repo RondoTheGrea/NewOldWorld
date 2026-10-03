@@ -116,7 +116,7 @@ the same block**, or it will silently read/write production while everything
 else is local.
 
     npm start            # emulators (default)
-    npm run start:cloud  # real REPLACE-WITH-NEW-PROJECT-ID
+    npm run start:cloud  # real newoldworld-b8f5d
 
 The switch is `usingEmulators = __DEV__ && EXPO_PUBLIC_USE_EMULATOR !== 'false'`:
 
