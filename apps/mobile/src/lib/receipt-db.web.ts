@@ -27,6 +27,14 @@ export async function searchReceipts(_query: string, _limit: number): Promise<Re
   return [];
 }
 
+export async function loadCustomerReceiptPage(
+  _customerId: string,
+  _cursor: ReceiptPageCursor | null,
+  _limit: number
+): Promise<ReceiptSummary[]> {
+  throw new Error(UNAVAILABLE_MESSAGE);
+}
+
 export async function findDraftReceipt(): Promise<ReceiptSummary | null> {
   return null;
 }

@@ -13,8 +13,8 @@ type CustomerCardProps = {
   onPress: () => void;
 };
 
-// A fixed height, tall enough for the worst case (a long delivery-days list
-// wrapping to 2 lines, plus the address) with icons stacked above
+// A fixed height, tall enough for the worst case (a long schedule wrapping to
+// 2 lines, plus the address) with icons stacked above
 // their text — that stacking costs more vertical room per row than
 // side-by-side did, which is why this is taller than it looks like it needs
 // to be for a short card.
@@ -23,8 +23,7 @@ const META_ICON_SIZE = 19;
 
 export function CustomerCard({ customer, onPress }: CustomerCardProps) {
   const theme = useTheme();
-  const deliveryLabel =
-    customer.deliveryDays.length > 0 ? customer.deliveryDays.join(', ') : 'No delivery days set';
+  const scheduleLabel = customer.schedule || 'No schedule set';
 
   return (
     <Pressable
@@ -49,7 +48,7 @@ export function CustomerCard({ customer, onPress }: CustomerCardProps) {
       <View style={[styles.divider, { backgroundColor: theme.textSecondary }]} />
 
       <View style={styles.meta}>
-        <MetaRow icon={CustomerIcons.deliveryDays} text={deliveryLabel} lines={2} />
+        <MetaRow icon={CustomerIcons.schedule} text={scheduleLabel} lines={2} />
         {!!customer.address && <MetaRow icon={CustomerIcons.address} text={customer.address} lines={1} />}
       </View>
     </Pressable>

@@ -522,8 +522,8 @@ someone happened to create it.
 ```ts
 {
   schemaVersion: 1,
-  storeName, name, deliveryDays: ["Mon", "Thu"],
-  address, phone, description,      // (areaId / agentGroupId: removed Oct 2026)
+  storeName, name, address, phone,
+  schedule: "Mon & Thu",            // free text (deliveryDays / description / areaId / agentGroupId: removed Oct 2026)
 
   createdAt, updatedAt,             // Date.now(), device clock
   deleted: false,                   // soft delete — see below

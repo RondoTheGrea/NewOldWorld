@@ -13,15 +13,13 @@ import {
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ThemedText } from '@/components/themed-text';
-import { WeekdayChips } from '@/components/weekday-chips';
-import { type Customer, type CustomerInput, type Weekday } from '@/context/customers';
+import { type Customer, type CustomerInput } from '@/context/customers';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useKeyboardSheet } from '@/hooks/use-keyboard-sheet';
 import { useTheme } from '@/hooks/use-theme';
 import { CustomerFieldLimits, sanitizeCustomerInput } from '@/lib/customer-types';
 import { describeError, logError } from '@/lib/errors';
 import { notifyFailure } from '@/lib/retry';
-import { sanitizeSingleLine } from '@/lib/text-input';
 
 type CustomerFormModalProps = {
   visible: boolean;
@@ -38,10 +36,9 @@ type CustomerFormModalProps = {
 const EMPTY: CustomerInput = {
   storeName: '',
   name: '',
-  deliveryDays: [],
   address: '',
   phone: '',
-  description: '',
+  schedule: '',
 };
 
 export function CustomerFormModal({ visible, editing, onClose, onSubmit }: CustomerFormModalProps) {
@@ -65,12 +62,11 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
   const theme = useTheme();
   const { overlap, onBackdropLayout, scrollProps } = useKeyboardSheet();
   const source = editing ?? EMPTY;
-  const [storeName, setStoreName] = useState(source.storeName);
   const [name, setName] = useState(source.name);
-  const [deliveryDays, setDeliveryDays] = useState<Weekday[]>(source.deliveryDays);
-  const [address, setAddress] = useState(source.address);
+  const [storeName, setStoreName] = useState(source.storeName);
   const [phone, setPhone] = useState(source.phone);
-  const [description, setDescription] = useState(source.description);
+  const [schedule, setSchedule] = useState(source.schedule);
+  const [address, setAddress] = useState(source.address);
   const [saving, setSaving] = useState(false);
   // An edit overwrites a store the whole route already sells to, so it asks
   // once before it writes — the same "is this right?" the expense form puts in
@@ -87,13 +83,17 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
   // button is the one control that can't say why it won't work — the driver
   // presses it, nothing happens, and there is nothing on screen naming the
   // field that is missing. So it always presses, and answers with the list.
-  const cleanStoreName = sanitizeSingleLine(storeName, CustomerFieldLimits.storeName);
-  const cleanName = sanitizeSingleLine(name, CustomerFieldLimits.name);
-  // Checked *after* cleaning, not just trimmed: a paste of zero-width spaces
-  // survives trim() and would otherwise pass as a store name.
+  //
+  // Every field is required, as it was on the old app's "Add New Customer"
+  // form this one copies. Checked *after* cleaning, not just trimmed: a paste
+  // of zero-width spaces survives trim() and would otherwise pass as a name.
+  const clean = sanitizeCustomerInput({ storeName, name, address, phone, schedule });
   const errors = {
-    storeName: cleanStoreName.length === 0 ? 'Store name is required' : null,
-    name: cleanName.length === 0 ? 'Name is required' : null,
+    name: clean.name.length === 0 ? 'Name is required' : null,
+    storeName: clean.storeName.length === 0 ? 'Store name is required' : null,
+    phone: clean.phone.length === 0 ? 'Phone number is required' : null,
+    schedule: clean.schedule.length === 0 ? 'Schedule is required' : null,
+    address: clean.address.length === 0 ? 'Address is required' : null,
   };
   const complete = Object.values(errors).every((message) => message === null);
 
@@ -128,23 +128,13 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
     if (!complete) {
       setShowErrors(true);
       Keyboard.dismiss();
-      // Every required field sits above the optional ones, so the top of the
-      // list always shows the first message — including when Save was pressed
-      // from the bottom of a scrolled form.
+      // Back to the top so the first message is in view — including when
+      // Save was pressed from the bottom of a scrolled form.
       scrollRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
     if (editing) setConfirmingEdit(true);
     else void handleSubmit();
-  }
-
-  // Tapping a chip or opening a picker means the user is done with whatever
-  // text field they were in — drop the keyboard so it isn't left hovering over
-  // the control they just reached for. keyboardShouldPersistTaps="handled" on
-  // the list means these taps don't blur the field on their own.
-  function toggleDay(day: Weekday) {
-    Keyboard.dismiss();
-    setDeliveryDays((days) => (days.includes(day) ? days.filter((d) => d !== day) : [...days, day]));
   }
 
   async function handleSubmit() {
@@ -159,9 +149,7 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
     try {
       // customer-db sanitizes again on the way into SQLite; doing it here too
       // means what gets saved is exactly what this form validated.
-      const saved = await onSubmit(
-        sanitizeCustomerInput({ storeName, name, deliveryDays, address, phone, description }),
-      );
+      const saved = await onSubmit(clean);
       // Only close on success, so a failed save never discards the form.
       if (saved) onClose();
     } catch (error) {
@@ -189,7 +177,7 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
       <View style={styles.sheetWrapper}>
         <View style={[styles.sheet, { backgroundColor: theme.background }]}>
           <View style={styles.header}>
-            <ThemedText type="subtitle">{editing ? 'Edit customer' : 'New customer'}</ThemedText>
+            <ThemedText type="subtitle">{editing ? 'Edit Customer' : 'Add New Customer'}</ThemedText>
             <Pressable
               onPress={onClose}
               accessibilityRole="button"
@@ -215,70 +203,83 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
                 pasted text as well as typing, so a pasted document is capped
                 before it ever reaches the database or a receipt. */}
             <TextField
-              label="Store name"
-              required
-              errorText={errorFor('storeName')}
-              value={storeName}
-              onChangeText={setStoreName}
-              placeholder="e.g. Corner Sari-Sari Store"
-              editable={!saving}
-              maxLength={CustomerFieldLimits.storeName}
-            />
-            <TextField
               label="Name"
               required
               errorText={errorFor('name')}
               value={name}
               onChangeText={setName}
-              placeholder="Contact person"
+              placeholder="Customer Name"
               editable={!saving}
               maxLength={CustomerFieldLimits.name}
             />
-
-            <View style={styles.field}>
-              <ThemedText type="smallBold" themeColor="textSecondary">
-                Delivery days
-              </ThemedText>
-              <WeekdayChips selected={deliveryDays} onToggle={toggleDay} />
-            </View>
-
             <TextField
-              label="Address"
-              value={address}
-              onChangeText={setAddress}
+              label="Store Name"
+              required
+              errorText={errorFor('storeName')}
+              value={storeName}
+              onChangeText={setStoreName}
+              placeholder="Store Name"
               editable={!saving}
-              multiline
-              maxLength={CustomerFieldLimits.address}
+              maxLength={CustomerFieldLimits.storeName}
             />
             <TextField
-              label="Phone number"
+              label="Phone Number"
+              required
+              errorText={errorFor('phone')}
               value={phone}
               onChangeText={setPhone}
+              placeholder="Phone Number"
               keyboardType="phone-pad"
               editable={!saving}
               maxLength={CustomerFieldLimits.phone}
             />
             <TextField
-              label="Description"
-              value={description}
-              onChangeText={setDescription}
+              label="Schedule"
+              required
+              errorText={errorFor('schedule')}
+              value={schedule}
+              onChangeText={setSchedule}
+              placeholder="Delivery/Visit Schedule"
               editable={!saving}
+              maxLength={CustomerFieldLimits.schedule}
+            />
+            <TextField
+              label="Address"
+              required
+              errorText={errorFor('address')}
+              value={address}
+              onChangeText={setAddress}
+              placeholder="Full Address"
               multiline
-              maxLength={CustomerFieldLimits.description}
+              editable={!saving}
+              maxLength={CustomerFieldLimits.address}
             />
           </ScrollView>
 
-          <Pressable
-            onPress={handleSavePress}
-            disabled={saving}
-            style={({ pressed }) => [
-              styles.saveButton,
-              { backgroundColor: theme.text, opacity: saving ? 0.4 : pressed ? 0.8 : 1 },
-            ]}>
-            <ThemedText type="smallBold" style={{ color: theme.background }}>
-              {saving ? 'Saving…' : editing ? 'Save changes' : 'Add customer'}
-            </ThemedText>
-          </Pressable>
+          {/* Cancel beside Save, as on the old app's form. */}
+          <View style={styles.buttonRow}>
+            <Pressable
+              onPress={onClose}
+              disabled={saving}
+              style={({ pressed }) => [
+                styles.button,
+                styles.cancelButton,
+                { borderColor: theme.textSecondary, opacity: saving ? 0.4 : pressed ? 0.6 : 1 },
+              ]}>
+              <ThemedText type="smallBold">Cancel</ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={handleSavePress}
+              disabled={saving}
+              style={({ pressed }) => [
+                styles.button,
+                { backgroundColor: theme.text, opacity: saving ? 0.4 : pressed ? 0.8 : 1 },
+              ]}>
+              <ThemedText type="smallBold" style={{ color: theme.background }}>
+                {saving ? 'Saving…' : 'Save'}
+              </ThemedText>
+            </Pressable>
+          </View>
         </View>
       </View>
 
@@ -287,7 +288,7 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
       <ConfirmDialog
         visible={confirmingEdit}
         title="Save these changes?"
-        message={`${sanitizeSingleLine(storeName, CustomerFieldLimits.storeName)} will be updated for everyone once it uploads.`}
+        message={`${clean.storeName} will be updated for everyone once it uploads.`}
         cancelLabel="Go back"
         confirmLabel="Save"
         busy={saving}
@@ -392,11 +393,19 @@ const styles = StyleSheet.create({
     minHeight: 64,
     textAlignVertical: 'top',
   },
-  saveButton: {
+  buttonRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    marginVertical: Spacing.three,
+  },
+  button: {
+    flex: 1,
     borderRadius: Spacing.two,
     paddingVertical: Spacing.three,
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: Spacing.three,
+  },
+  cancelButton: {
+    borderWidth: StyleSheet.hairlineWidth,
   },
 });

@@ -4,7 +4,6 @@ import {
   sanitizeCustomerInput,
   type Customer,
   type CustomerInput,
-  type Weekday,
 } from '@/lib/customer-types';
 import { generateId } from '@/lib/id';
 
@@ -32,11 +31,10 @@ function getDb(): Promise<SQLiteDatabase> {
           id TEXT PRIMARY KEY,
           store_name TEXT NOT NULL,
           name TEXT NOT NULL,
-          delivery_days TEXT NOT NULL,
           area_id TEXT,
           address TEXT NOT NULL,
           phone TEXT NOT NULL,
-          description TEXT NOT NULL,
+          schedule TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
         );
@@ -48,6 +46,7 @@ function getDb(): Promise<SQLiteDatabase> {
       await migrateCreatedLocally(db);
       await migrateClearBackfilledCreatedLocally(db);
       await migrateNewUntilBilled(db);
+      await migrateScheduleText(db);
       return db;
     });
     dbPromise = dbPromise.catch((error: unknown) => {
@@ -216,6 +215,32 @@ async function migrateNewUntilBilled(db: SQLiteDatabase): Promise<void> {
 }
 
 /**
+ * Swaps the weekday chips and the description for the old app's free-text
+ * Schedule, so the store form matches OldWorld's one-to-one (see
+ * CustomerInput in customer-types.ts).
+ *
+ * The old columns are *dropped*, not just left unread like `area_id`, because
+ * both were `NOT NULL` with no default — left in place, every insert that no
+ * longer names them would fail on a phone that had them. A fresh install never
+ * creates them (the CREATE TABLE above already has the new shape), so each
+ * step checks before it acts. Nothing is carried across: the app had not been
+ * deployed when this changed, so there were no real stores to convert.
+ */
+async function migrateScheduleText(db: SQLiteDatabase): Promise<void> {
+  const versionRow = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  if ((versionRow?.user_version ?? 0) >= 8) return;
+
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(customers)');
+  const has = (name: string) => columns.some((column) => column.name === name);
+  if (!has('schedule')) {
+    await db.execAsync("ALTER TABLE customers ADD COLUMN schedule TEXT NOT NULL DEFAULT ''");
+  }
+  if (has('delivery_days')) await db.execAsync('ALTER TABLE customers DROP COLUMN delivery_days');
+  if (has('description')) await db.execAsync('ALTER TABLE customers DROP COLUMN description');
+  await db.execAsync('PRAGMA user_version = 8');
+}
+
+/**
  * Adds the two columns customer sync needs.
  *
  * `sync_state` is the same flag the ledger and receipts carry — see the
@@ -254,10 +279,9 @@ type CustomerRow = {
   id: string;
   store_name: string;
   name: string;
-  delivery_days: string;
   address: string;
   phone: string;
-  description: string;
+  schedule: string;
   created_at: number;
   updated_at: number;
   /** SQLite has no boolean — 0 or 1. See migrateSyncState. */
@@ -272,10 +296,9 @@ function rowToCustomer(row: CustomerRow): Customer {
     id: row.id,
     storeName: row.store_name,
     name: row.name,
-    deliveryDays: JSON.parse(row.delivery_days) as Weekday[],
     address: row.address,
     phone: row.phone,
-    description: row.description,
+    schedule: row.schedule,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isNew: row.is_new === 1,
@@ -322,15 +345,14 @@ export async function insertCustomer(input: CustomerInput, customerId?: string):
     isNew: true,
   };
   const inserted = await db.runAsync(
-    `INSERT OR IGNORE INTO customers (id, store_name, name, delivery_days, address, phone, description, created_at, updated_at, local_updated_at, is_new)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    `INSERT OR IGNORE INTO customers (id, store_name, name, address, phone, schedule, created_at, updated_at, local_updated_at, is_new)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     customer.id,
     customer.storeName,
     customer.name,
-    JSON.stringify(customer.deliveryDays),
     customer.address,
     customer.phone,
-    customer.description,
+    customer.schedule,
     customer.createdAt,
     customer.updatedAt,
     // Same clock reading as updated_at: this write *is* the local write. They
@@ -383,14 +405,13 @@ export async function updateCustomerRow(
   // hiccup, having never actually failed.
   await db.runAsync(
     `UPDATE customers
-     SET store_name = ?, name = ?, delivery_days = ?, address = ?, phone = ?, description = ?, updated_at = ?, local_updated_at = ?, sync_state = 'pending', sync_attempts = 0
+     SET store_name = ?, name = ?, address = ?, phone = ?, schedule = ?, updated_at = ?, local_updated_at = ?, sync_state = 'pending', sync_attempts = 0
      WHERE id = ?`,
     clean.storeName,
     clean.name,
-    JSON.stringify(clean.deliveryDays),
     clean.address,
     clean.phone,
-    clean.description,
+    clean.schedule,
     now,
     now,
     id
@@ -635,15 +656,14 @@ export async function countSyncedCustomers(): Promise<number> {
 export async function upsertCustomerFromServer(remote: PendingCustomer): Promise<boolean> {
   const db = await getDb();
   const result = await db.runAsync(
-    `INSERT INTO customers (id, store_name, name, delivery_days, address, phone, description, created_at, updated_at, deleted, sync_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+    `INSERT INTO customers (id, store_name, name, address, phone, schedule, created_at, updated_at, deleted, sync_state)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
      ON CONFLICT(id) DO UPDATE SET
        store_name = excluded.store_name,
        name = excluded.name,
-       delivery_days = excluded.delivery_days,
        address = excluded.address,
        phone = excluded.phone,
-       description = excluded.description,
+       schedule = excluded.schedule,
        updated_at = excluded.updated_at,
        deleted = excluded.deleted,
        sync_state = 'synced'
@@ -651,10 +671,9 @@ export async function upsertCustomerFromServer(remote: PendingCustomer): Promise
     remote.id,
     remote.storeName,
     remote.name,
-    JSON.stringify(remote.deliveryDays),
     remote.address,
     remote.phone,
-    remote.description,
+    remote.schedule,
     remote.createdAt,
     remote.updatedAt,
     remote.deleted ? 1 : 0

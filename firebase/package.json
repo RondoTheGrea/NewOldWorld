@@ -12,6 +12,8 @@
     "deploy:hosting": "firebase deploy --project newoldworld-b8f5d --only hosting",
     "make-admin": "node scripts/make-admin.mjs",
     "make-admin:cloud": "node scripts/make-admin.mjs --cloud",
+    "migrate:oldworld": "node scripts/migrate-oldworld-customers.mjs",
+    "migrate:oldworld:cloud": "node scripts/migrate-oldworld-customers.mjs --cloud",
     "storage:cors": "node scripts/storage-cors.mjs",
     "logs": "firebase functions:log --project newoldworld-b8f5d"
   },

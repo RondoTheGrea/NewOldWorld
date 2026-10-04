@@ -11,6 +11,11 @@ coverage/
 firebase-debug.log
 firebase-debug.*.log
 
+# OldWorld customer migration — the CSV export and the reports are full of
+# real customers' names and phone numbers. Never commit either.
+customersCollectionId_*.csv
+firebase/migration-output/
+
 # OS / editor
 .DS_Store
 Thumbs.db

@@ -5,7 +5,7 @@ import { logError } from '@/lib/errors';
 import { deleteAllPaymentProofs } from '@/lib/payment-proof';
 import * as receiptDb from '@/lib/receipt-db';
 import { CannotVoidReceiptError, findStockShortfalls, InsufficientStockError } from '@/lib/receipt-types';
-import type { PaymentMethod, ReceiptDetail, ReceiptDraftInput, ReceiptPaymentProof, ReceiptSummary } from '@/lib/receipt-types';
+import type { PaymentMethod, ReceiptDetail, ReceiptDraftInput, ReceiptPageCursor, ReceiptPaymentProof, ReceiptSummary } from '@/lib/receipt-types';
 import { runWithRetry } from '@/lib/retry';
 // Read directly rather than through useStock: this is a question about what is
 // on disk ("was this receipt ever deducted?"), not about what the Inventory
@@ -32,6 +32,7 @@ export type {
   ReceiptDetail,
   ReceiptDraftInput,
   ReceiptItem,
+  ReceiptPageCursor,
   ReceiptPaymentProof,
   ReceiptReturnItem,
   ReceiptStatus,
@@ -139,6 +140,12 @@ type ReceiptsContextValue = {
   getReceiptDetail: (id: string) => Promise<ReceiptDetail>;
   /** Matches customer name or store name (case-insensitive substring), queried straight from SQLite so it stays fast no matter how many receipts have piled up. */
   searchReceipts: (query: string) => Promise<ReceiptSummary[]>;
+  /** One store's finalized receipts, newest first, a page at a time — the customer profile's purchase history. */
+  loadCustomerReceipts: (
+    customerId: string,
+    cursor: ReceiptPageCursor | null,
+    limit: number
+  ) => Promise<ReceiptSummary[]>;
   /**
    * Locks a draft in, records how it was paid, and deducts its items from
    * truck stock. No-ops if the receipt isn't (or is no longer) a draft — see
@@ -347,6 +354,10 @@ export function ReceiptsProvider({ children }: PropsWithChildren) {
 
   async function getReceiptDetail(id: string) {
     return receiptDb.getReceiptDetail(id);
+  }
+
+  function loadCustomerReceipts(customerId: string, cursor: ReceiptPageCursor | null, limit: number) {
+    return receiptDb.loadCustomerReceiptPage(customerId, cursor, limit);
   }
 
   function searchReceipts(query: string) {
@@ -703,6 +714,7 @@ export function ReceiptsProvider({ children }: PropsWithChildren) {
     deleteDraft,
     getReceiptDetail,
     searchReceipts,
+    loadCustomerReceipts,
     finalize,
     voidReceipt,
     returnVoidedStock,

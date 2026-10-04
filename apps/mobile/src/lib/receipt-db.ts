@@ -340,6 +340,43 @@ export async function searchReceipts(query: string, limit: number): Promise<Rece
   return rows.map(rowToSummary);
 }
 
+/**
+ * One store's purchase history: its finalized receipts on this phone, newest
+ * first, a page at a time — the same cursor contract as loadReceiptPage.
+ *
+ * Drafts are left out (nothing has been sold yet); voided receipts are kept, so
+ * the history matches the main Receipts list, and the screen marks them.
+ * idx_receipts_customer_id narrows the rows to one store before the sort, so
+ * this stays cheap however many receipts the phone holds overall.
+ */
+export async function loadCustomerReceiptPage(
+  customerId: string,
+  cursor: ReceiptPageCursor | null,
+  limit: number
+): Promise<ReceiptSummary[]> {
+  const db = await getDb();
+  const rows = cursor
+    ? await db.getAllAsync<ReceiptRow>(
+        `SELECT * FROM receipts
+         WHERE customer_id = ? AND status = 'finalized' AND (created_at, id) < (?, ?)
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?`,
+        customerId,
+        cursor.createdAt,
+        cursor.id,
+        limit
+      )
+    : await db.getAllAsync<ReceiptRow>(
+        `SELECT * FROM receipts
+         WHERE customer_id = ? AND status = 'finalized'
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?`,
+        customerId,
+        limit
+      );
+  return rows.map(rowToSummary);
+}
+
 // ORDER BY rowid: without it SQLite is free to satisfy the WHERE receipt_id = ?
 // via the composite-PK index instead of a table scan, which returns rows in
 // bread_type_id/returned_bread_type_id order rather than the order writeLines()

@@ -23,6 +23,17 @@ project, the rules, the emulators and deploying. The phone is documented in
 - `scripts/emulators.mjs` — the emulator wrapper (Java version + data
   import/export, below).
 - `scripts/make-admin.mjs` — the one-time first-admin bootstrap.
+- `scripts/migrate-oldworld-customers.mjs` — the one-time copy of the old
+  OldWorld app's customer list into `customers`, read from the CSV the Appwrite
+  console exports (newest `customersCollectionId_*.csv` at the repo root, or
+  `--file=`; header row is validated, not assumed)
+  (`npm run migrate:oldworld[:cloud] [-- --write]`). Previews by default, merges
+  records whose name **and** store name match (case/spacing only — "Store 2" is
+  a different store), only ever `create`s (ids derive from that match key, so a
+  rerun can't duplicate or overwrite), and reports to `migration-output/`
+  (gitignored — it holds real customers' details, as does the CSV). Owner's
+  walkthrough:
+  `docs/oldworld-customer-migration.md`.
 - `scripts/prepare-hosting.mjs` + `web-dist/` — the hosting predeploy step;
   `npm run deploy:hosting` builds `apps/web` into `web-dist` and ships it as a
   single-page app (every path rewritten to `/index.html`).

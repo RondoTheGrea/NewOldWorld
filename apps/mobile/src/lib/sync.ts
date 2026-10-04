@@ -19,7 +19,6 @@ import { businessDayKey } from '@/lib/business-day';
 import { assertFromServer } from '@/lib/catalog-source';
 import type { PendingCustomer } from '@/lib/customer-db';
 import { logError } from '@/lib/errors';
-import type { Weekday } from '@/lib/customer-types';
 import { appCheckTokenObtainable, db, recentAppCheckFailure, storage } from '@/lib/firebase';
 import type { PendingPaymentProof } from '@/lib/receipt-db';
 import type { PendingReceipt } from '@/lib/receipt-types';
@@ -879,10 +878,9 @@ export async function uploadCustomer(uid: string, customer: PendingCustomer): Pr
       schemaVersion: SchemaVersion,
       storeName: customer.storeName,
       name: customer.name,
-      deliveryDays: customer.deliveryDays,
       address: customer.address,
       phone: customer.phone,
-      description: customer.description,
+      schedule: customer.schedule,
       createdAt: customer.createdAt,
       updatedAt: customer.updatedAt,
       deleted: customer.deleted,
@@ -965,10 +963,9 @@ export async function pullCustomers(since: number, max: number): Promise<Pending
       id: snap.id,
       storeName: (data.storeName as string) ?? '',
       name: (data.name as string) ?? '',
-      deliveryDays: Array.isArray(data.deliveryDays) ? (data.deliveryDays as Weekday[]) : [],
       address: (data.address as string) ?? '',
       phone: (data.phone as string) ?? '',
-      description: (data.description as string) ?? '',
+      schedule: (data.schedule as string) ?? '',
       createdAt: (data.createdAt as number) ?? 0,
       updatedAt: (data.updatedAt as number) ?? 0,
       deleted: data.deleted === true,

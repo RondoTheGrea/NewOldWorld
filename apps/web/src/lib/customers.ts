@@ -20,18 +20,15 @@ import { db } from '@/lib/firebase';
  * still here, and anything that lists stores has to filter them out.
  */
 
-export const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-export type Weekday = (typeof WEEKDAYS)[number];
-
 export type Customer = {
   id: string;
   storeName: string;
   /** The contact person at the store, not the store itself. */
   name: string;
-  deliveryDays: Weekday[];
   address: string;
   phone: string;
-  description: string;
+  /** Free text as the agent typed it ("Mon & Thu", "every morning") — not parsed into days. */
+  schedule: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -80,23 +77,12 @@ function readCustomers(docs: { id: string; data: () => Record<string, unknown> }
         id: snap.id,
         storeName: (data.storeName as string) ?? '',
         name: (data.name as string) ?? '',
-        deliveryDays: Array.isArray(data.deliveryDays)
-          ? (data.deliveryDays as Weekday[]).filter((day) => WEEKDAYS.includes(day))
-          : [],
         address: (data.address as string) ?? '',
         phone: (data.phone as string) ?? '',
-        description: (data.description as string) ?? '',
+        schedule: (data.schedule as string) ?? '',
         createdAt: (data.createdAt as number) ?? 0,
         updatedAt: (data.updatedAt as number) ?? 0,
       };
     })
     .sort((a, b) => a.storeName.localeCompare(b.storeName));
-}
-
-/** "Mon, Wed, Fri" — always in week order, however they were tapped on the phone. */
-export function formatDeliveryDays(days: Weekday[]): string {
-  const ordered = WEEKDAYS.filter((day) => days.includes(day));
-  if (ordered.length === 0) return 'No set days';
-  if (ordered.length === 7) return 'Every day';
-  return ordered.join(', ');
 }

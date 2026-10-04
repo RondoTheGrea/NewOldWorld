@@ -1,10 +1,10 @@
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { useState, type ReactNode } from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PurchaseHistory } from '@/components/purchase-history';
 import { ThemedText } from '@/components/themed-text';
-import { WeekdayChips } from '@/components/weekday-chips';
 import { CustomerIcons } from '@/constants/customer-icons';
 import { type Customer } from '@/context/customers';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -71,23 +71,31 @@ export function CustomerDetailModal({ customer, onClose, onEdit, onDelete }: Cus
 
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
+              {/* Scrolls now that the purchase history sits under the
+                  details: a regular store's receipts run well past the
+                  screen, while the title above and the buttons below stay
+                  put. */}
+              <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
               <View style={styles.fields}>
                 <Field icon={CustomerIcons.contact} label="Contact person" value={customer.name} />
 
-                <Field icon={CustomerIcons.deliveryDays} label="Delivery days">
-                  <WeekdayChips selected={customer.deliveryDays} />
-                </Field>
-
-                {!!customer.address && (
-                  <Field icon={CustomerIcons.address} label="Address" value={customer.address} />
-                )}
                 {!!customer.phone && (
                   <Field icon={CustomerIcons.phone} label="Phone number" value={customer.phone} />
                 )}
-                {!!customer.description && (
-                  <Field icon={CustomerIcons.description} label="Description" value={customer.description} />
+                {!!customer.schedule && (
+                  <Field icon={CustomerIcons.schedule} label="Schedule" value={customer.schedule} />
+                )}
+                {!!customer.address && (
+                  <Field icon={CustomerIcons.address} label="Address" value={customer.address} />
                 )}
               </View>
+
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+              {/* Keyed by store so opening a different one starts a fresh history
+                  rather than flashing the previous store's receipts. */}
+              <PurchaseHistory key={customer.id} customerId={customer.id} />
+              </ScrollView>
 
               <View style={styles.actions}>
                 <Pressable
@@ -118,7 +126,7 @@ export function CustomerDetailModal({ customer, onClose, onEdit, onDelete }: Cus
 
       {/* Its own dialog rather than a line of red text inside this card. The
           card scrolls nothing and is as tall as the store's details, so on a
-          store with an address and a description the question used to appear
+          store with a long address the question used to appear
           below the fold — a Delete button whose confirmation you have to go
           looking for. The dialog also names the store, so the answer doesn't
           depend on remembering which card is behind the dim. */}
@@ -172,8 +180,10 @@ const styles = StyleSheet.create({
   wrapper: {
     width: '100%',
     maxWidth: MaxContentWidth,
+    maxHeight: '90%',
   },
   card: {
+    maxHeight: '100%',
     borderRadius: Spacing.four,
     padding: Spacing.four,
     gap: Spacing.three,
@@ -189,6 +199,12 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: StyleSheet.hairlineWidth,
+  },
+  scroll: {
+    flexGrow: 0,
+  },
+  scrollContent: {
+    gap: Spacing.three,
   },
   fields: {
     gap: Spacing.three,

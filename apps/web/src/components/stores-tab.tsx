@@ -4,7 +4,7 @@ import { ChartCard, ChartEmpty, ColumnChart, compactMoney, type Column } from '@
 import { ReceiptTag } from '@/components/payment-tag';
 import { ReceiptDetailPanel } from '@/components/receipt-detail-panel';
 import { formatBusinessTime } from '@/lib/business-day';
-import { formatDeliveryDays, watchCustomers, type Customer } from '@/lib/customers';
+import { watchCustomers, type Customer } from '@/lib/customers';
 import { watchNamedRecords, type NamedRecord } from '@/lib/named-records';
 import { fetchReceiptsForCustomer, formatCount, formatMoney, type RunReceipt } from '@/lib/runs';
 
@@ -62,7 +62,7 @@ export function StoresTab() {
       if (!needle) return true;
       // Searched across everything printed on the row plus the address, so a
       // half-remembered street name finds the shop.
-      return [customer.storeName, customer.name, customer.address, customer.phone]
+      return [customer.storeName, customer.name, customer.address, customer.phone, customer.schedule]
         .join(' ')
         .toLowerCase()
         .includes(needle);
@@ -173,7 +173,7 @@ const StoreTable = memo(function StoreTable({
           <thead>
             <tr>
               <th>Store</th>
-              <th>Delivery days</th>
+              <th>Schedule</th>
               <th>Phone</th>
             </tr>
           </thead>
@@ -194,7 +194,7 @@ const StoreTable = memo(function StoreTable({
                   <div className="ops-truck">{customer.storeName || 'Unnamed store'}</div>
                   <div className="ops-sub">{customer.name || 'No contact name'}</div>
                 </td>
-                <td>{formatDeliveryDays(customer.deliveryDays)}</td>
+                <td>{customer.schedule || '—'}</td>
                 <td>{customer.phone || '—'}</td>
               </tr>
             ))}
@@ -426,8 +426,8 @@ function StorePanel({ customer, onClose }: { customer: Customer; onClose: () => 
                 <b>{customer.phone || '—'}</b>
               </div>
               <div>
-                <span>Delivery days</span>
-                <b>{formatDeliveryDays(customer.deliveryDays)}</b>
+                <span>Schedule</span>
+                <b>{customer.schedule || '—'}</b>
               </div>
               <div>
                 <span>Address</span>
@@ -435,13 +435,6 @@ function StorePanel({ customer, onClose }: { customer: Customer; onClose: () => 
               </div>
             </div>
           </section>
-
-          {customer.description && (
-            <section className="ops-section">
-              <span className="ops-label">Description</span>
-              <p className="ops-stat-note">{customer.description}</p>
-            </section>
-          )}
 
           <section className="ops-section">
             <span className="ops-label">All time</span>

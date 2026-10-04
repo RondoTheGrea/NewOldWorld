@@ -8,7 +8,7 @@ import { pullCustomerUpdates } from '@/lib/customer-sync';
 import { isNewCustomer, type Customer, type CustomerInput } from '@/lib/customer-types';
 import { requestSync, setCustomersChangedHandler } from '@/lib/sync';
 
-export { WEEKDAYS, isNewCustomer, type Weekday, type CustomerInput, type Customer } from '@/lib/customer-types';
+export { isNewCustomer, type CustomerInput, type Customer } from '@/lib/customer-types';
 
 type CustomersContextValue = {
   customers: Customer[];

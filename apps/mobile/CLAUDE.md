@@ -814,6 +814,24 @@ The Customers tab (`app/(app)/customers.tsx`) is a grid of store cards over
 one and only place a store is created — nothing else calls `addCustomer`, and
 the receipt form's store picker deliberately has no quick-add row).
 
+**The form's fields are the old OldWorld app's, one for one** (October 2026,
+owner's call, so that app's customer list can be migrated straight across):
+Name, Store Name, Phone Number, Schedule, Address — **all five required**.
+Schedule is free text ("Mon & Thu"), not weekday chips; the chips and the
+Description field were removed, along with their SQLite columns
+(`migrateScheduleText`, customers.db user_version 8, which *drops*
+`delivery_days` and `description` because both were `NOT NULL` with no
+default). OldWorld's `phoneNumber` is `phone` here.
+
+**The detail modal carries OldWorld's "Purchase History"**
+(`components/purchase-history.tsx`): the store's finalized receipts *on this
+phone*, newest first, ten at a time with Load More, each tapping open to its
+lines, returns and totals (`loadCustomerReceiptPage` in `lib/receipt-db.ts`,
+via `loadCustomerReceipts` on the receipts context). Voided receipts are listed
+and marked. Old OldWorld receipts were deliberately not migrated, so a migrated
+store starts with an empty history; the dashboard's Stores tab is where every
+truck's receipts for a store are seen together.
+
 **A store has no area and no crew.** Both fields (and their required-field
 messages) were removed from the form, the card and the detail modal when areas
 and crews were removed on the owner's call (October 2026). The old SQLite
@@ -826,14 +844,13 @@ receipt form's store picker both show every store on the phone.
 must not re-introduce that. A greyed-out button is the one control that cannot
 say why it won't work: the driver presses it, nothing happens, and nothing on
 screen names the field that is missing. So it always presses, and an incomplete
-form answers with **"Store name is required"** and **"Name is required"** —
+form answers with a **"… is required"** message for each empty field —
 under the field each one is about, in `theme.danger`, with that field's outline
 turned red too. They appear on the first press (`showErrors`), so a form nobody has
 finished yet isn't already scolding the person filling it, and from then on each
 clears itself the moment its field is answered. The press also dismisses the keyboard and scrolls
-the list to the top: both required fields sit above the optional ones, so
-the first message is always on screen even when Save was pressed from the
-bottom of a scrolled form. `handleSubmit` re-checks completeness itself rather
+the list to the top, so the first message is on screen even when Save was
+pressed from the bottom of a scrolled form. `handleSubmit` re-checks completeness itself rather
 than trusting its caller — it is the only path to a write and two things call
 it.
 

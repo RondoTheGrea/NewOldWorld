@@ -5,20 +5,26 @@ import { sanitizeMultiline, sanitizeSingleLine } from '@/lib/text-input';
 // matches the build platform, and this file is the only thing both sides
 // depend on.
 
-export const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-export type Weekday = (typeof WEEKDAYS)[number];
-
+// The fields are the ones the previous (OldWorld) app's "Add New Customer"
+// form asked for — Name, Store Name, Phone Number, Schedule, Address — so that
+// app's customer list can be migrated across one-to-one. Its `phoneNumber` is
+// this `phone`.
 export type CustomerInput = {
   storeName: string;
   name: string;
-  deliveryDays: Weekday[];
-  // A store used to carry an `areaId` and an `agentGroupId` (crew) too. Both
-  // were removed on the owner's call. Their old SQLite columns are left in
-  // place and simply no longer read or written, and copies already on the
-  // server keep the fields untouched — nothing reads them any more.
+  // A store used to carry an `areaId` and an `agentGroupId` (crew) too, and
+  // later `deliveryDays` (weekday chips) and `description`. All were removed on
+  // the owner's call. Their old SQLite columns are dropped or left unread (see
+  // customer-db.ts), and copies already on the server keep the fields
+  // untouched — nothing reads them any more.
   address: string;
   phone: string;
-  description: string;
+  /**
+   * When the store is visited, as free text ("Mon & Thu", "every morning").
+   * Deliberately not parsed into weekdays — it is whatever the agent typed,
+   * exactly as the old app stored it.
+   */
+  schedule: string;
 };
 
 export type Customer = CustomerInput & {
@@ -87,27 +93,20 @@ export const CustomerFieldLimits = {
   name: 80,
   address: 200,
   phone: 32,
-  description: 500,
+  schedule: 120,
 } as const;
 
 /**
  * The single point where a customer is cleaned up before it is stored, applied
  * inside customer-db's insert and update so it holds no matter which screen
  * (or future code) is doing the saving.
- *
- * `deliveryDays` is filtered against WEEKDAYS rather than trusted: it is the
- * one field that gets JSON-serialised into a text column and JSON.parsed back
- * out, so this guarantees only real weekdays — no duplicates — ever make the
- * round trip. Filtering in WEEKDAYS order also means the days always read
- * Sun→Sat instead of in whatever order they were tapped.
  */
 export function sanitizeCustomerInput(input: CustomerInput): CustomerInput {
   return {
     storeName: sanitizeSingleLine(input.storeName, CustomerFieldLimits.storeName),
     name: sanitizeSingleLine(input.name, CustomerFieldLimits.name),
-    deliveryDays: WEEKDAYS.filter((day) => input.deliveryDays.includes(day)),
     address: sanitizeMultiline(input.address, CustomerFieldLimits.address),
     phone: sanitizeSingleLine(input.phone, CustomerFieldLimits.phone),
-    description: sanitizeMultiline(input.description, CustomerFieldLimits.description),
+    schedule: sanitizeSingleLine(input.schedule, CustomerFieldLimits.schedule),
   };
 }
