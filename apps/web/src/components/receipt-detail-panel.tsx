@@ -47,7 +47,7 @@ import { formatMoney, type RunReceipt } from '@/lib/runs';
 
 export function ReceiptDetailPanel({
   receipt,
-  crewName,
+  agentsLabel,
   onClose,
 }: {
   receipt: RunReceipt | null;
@@ -57,16 +57,16 @@ export function ReceiptDetailPanel({
    *
    * A function rather than a resolved string because of `displayed` below: the
    * card keeps the last receipt on screen through its exit transition, and a
-   * plain prop would already have gone null by then — the crew line would blink
+   * plain prop would already have gone null by then — the agents line would blink
    * out halfway through the fade. Called on `displayed`, it stays right.
    *
    * The two callers answer it differently, and both are right where they are.
-   * The run panel knows the run, so a receipt with no recorded crew falls back
+   * The run panel knows the run, so a receipt with no recorded names falls back
    * to the run header's own snapshot. The store history spans months and every
-   * truck, so it resolves the crew id against the reference lists instead — see
-   * `crewLabel` in stores-tab.tsx.
+   * truck, so it resolves the agent ids against the reference list instead — see
+   * `agentsLabel` in stores-tab.tsx.
    */
-  crewName: (receipt: RunReceipt) => string | null;
+  agentsLabel: (receipt: RunReceipt) => string | null;
   onClose: () => void;
 }) {
   /**
@@ -125,7 +125,7 @@ export function ReceiptDetailPanel({
   return (
     <ReceiptDetailBody
       receipt={displayed}
-      crew={crewName(displayed)}
+      agents={agentsLabel(displayed)}
       visible={visible}
       cardRef={cardRef}
       onClose={onClose}
@@ -135,13 +135,13 @@ export function ReceiptDetailPanel({
 
 function ReceiptDetailBody({
   receipt,
-  crew,
+  agents,
   visible,
   cardRef,
   onClose,
 }: {
   receipt: RunReceipt;
-  crew: string | null;
+  agents: string | null;
   visible: boolean;
   cardRef: RefObject<HTMLElement | null>;
   onClose: () => void;
@@ -197,7 +197,7 @@ function ReceiptDetailBody({
         {receipt.voidedAt !== null && (
           <div className="ops-receipt-void-note">
             <b>Voided · {formatBusinessTime(receipt.voidedAt)}</b>
-            <span>Voided by the crew on the phone. Not counted in any total on this dashboard.</span>
+            <span>Voided on the phone. Not counted in any total on this dashboard.</span>
           </div>
         )}
 
@@ -276,12 +276,12 @@ function ReceiptDetailBody({
             {/* Under the payment block, which is where the phone puts it and
                 where it prints on the paper — so all three copies of this
                 receipt read in the same order. Omitted rather than shown empty
-                when there is nothing to say: a "Crew —" row would read as a
+                when there is nothing to say: an "Agents —" row would read as a
                 receipt nobody delivered. */}
-            {!!crew && (
+            {!!agents && (
               <div className="ops-receipt-total-row">
-                <span>Crew</span>
-                <b>{crew}</b>
+                <span>Agents</span>
+                <b>{agents}</b>
               </div>
             )}
           </div>

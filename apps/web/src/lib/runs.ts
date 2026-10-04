@@ -84,21 +84,17 @@ export type Run = {
   businessDay: string;
   /** Which trip of the day this is for this truck — 1, then 2 if it went back out. */
   sequence: number;
-  areaId: string;
-  areaName: string;
   truckId: string;
   truckName: string;
   /**
-   * The crew that was assigned, and who was in it when the run started.
+   * Who was on the truck — the agents the driver ticked when the run started,
+   * with their names as they read then. A snapshot: renaming an agent since
+   * doesn't change who was out that day. Read it through `runAgentNames`.
    *
-   * Both are snapshots. `agentGroupId` is what "which crew was out" means for
-   * a report; `agents` is who that crew actually held at the time, which is
-   * the only honest answer once people have been moved between crews since.
-   * An empty `agentGroupName` means the run predates a name being captured,
-   * not that the crew was nameless.
+   * (Runs from before crews and areas were removed also carry `agentGroupId`,
+   * `agentGroupName`, `areaId` and `areaName` in Firestore. Nothing reads them
+   * any more — the agents list was recorded on those runs too.)
    */
-  agentGroupId: string;
-  agentGroupName: string;
   agents: { id: string; name: string }[];
   createdByEmail: string;
   createdByUid: string;
@@ -137,33 +133,27 @@ export type RunReceipt = {
   runId: string;
   businessDay: string;
   truckId: string;
-  areaId: string;
   /**
-   * The crew that was out, and who was in it when the run opened.
-   *
-   * Ids only, like `truckId` — and resolved the same way, through the Agent
-   * Groups reference list. `agentIds` is the fallback rather than a duplicate:
-   * a crew that has since been deleted takes its name with it, and the people
-   * are the next-best answer to "who wrote this receipt". Both are empty on a
-   * receipt written before crews existed.
+   * Who was on the truck when the run opened — ids only, like `truckId`, and
+   * resolved through the Agents reference list.
    */
-  agentGroupId: string;
   agentIds: string[];
   /**
-   * The crew's **name as the phone printed it** on the customer's copy, copied
-   * onto the receipt when it was finalized.
+   * Who delivered it, **as the phone printed it** on the customer's copy —
+   * copied onto the receipt when it was finalized.
    *
    * The exception to the "ids only, resolved through the reference lists" rule
    * above, and deliberately so: this one is not an id to look up, it is what the
-   * paper in the store's hand says. Resolving `agentGroupId` answers a different
-   * question — what that crew is called *now* — and a crew renamed since would
-   * make the dashboard contradict the receipt it is displaying.
+   * paper in the store's hand says. Resolving `agentIds` answers a different
+   * question — what those people are called *now*.
    *
-   * Null on every receipt finalized before the phone recorded it (nothing was
-   * backfilled, see the Receipts section of CLAUDE.md), which is why both
-   * readers fall back to a resolved name rather than expecting this to be set.
+   * The agents' names, comma-separated. A receipt printed while crews existed
+   * carried the crew's name instead (`agentGroupName`), and that is read in
+   * here as the fallback, because it is what that paper says. Null on every
+   * receipt finalized before either was recorded (nothing was backfilled), which
+   * is why readers fall back to resolved names rather than expecting this.
    */
-  agentGroupName: string | null;
+  agentNames: string | null;
   customerId: string;
   customerName: string;
   customerContactName: string;
@@ -211,7 +201,7 @@ export function isVoided(receipt: RunReceipt): boolean {
 }
 
 /**
- * Something the truck spent while it was out — fuel, a toll, the crew's lunch.
+ * Something the truck spent while it was out — fuel, a toll, the agents' lunch.
  *
  * Read and shown, and that is all. **No total on this dashboard nets an expense
  * off anything**: not the day's sales, not the net, not an area's metrics, not
@@ -281,12 +271,8 @@ function readRun(id: string, data: Record<string, unknown>): Run {
     id,
     businessDay: asString(data.businessDay),
     sequence: asNumber(data.sequence, 1),
-    areaId: asString(data.areaId),
-    areaName: asString(data.areaName),
     truckId: asString(data.truckId),
     truckName: asString(data.truckName),
-    agentGroupId: asString(data.agentGroupId),
-    agentGroupName: asString(data.agentGroupName),
     agents: Array.isArray(data.agents) ? (data.agents as { id: string; name: string }[]) : [],
     createdByEmail: asString(data.createdByEmail),
     createdByUid: asString(data.createdByUid),
@@ -321,13 +307,17 @@ function readReceipt(id: string, data: Record<string, unknown>): RunReceipt {
     runId: asString(data.runId),
     businessDay: asString(data.businessDay),
     truckId: asString(data.truckId),
-    areaId: asString(data.areaId),
-    agentGroupId: asString(data.agentGroupId),
     agentIds: Array.isArray(data.agentIds) ? data.agentIds.filter((id): id is string => typeof id === 'string') : [],
-    // Not `asString`: an older receipt has no crew recorded at all, and "" would
-    // be indistinguishable from a crew whose name is blank. Null is the answer
-    // that routes both callers into their fallback.
-    agentGroupName: typeof data.agentGroupName === 'string' && data.agentGroupName ? data.agentGroupName : null,
+    // Not `asString`: an older receipt has nobody recorded at all, and "" would
+    // be indistinguishable from a blank name. Null is the answer that routes
+    // callers into their fallback. The crew name is the fallback for a receipt
+    // printed while crews existed — see `agentNames` on RunReceipt.
+    agentNames:
+      typeof data.agentNames === 'string' && data.agentNames
+        ? data.agentNames
+        : typeof data.agentGroupName === 'string' && data.agentGroupName
+          ? data.agentGroupName
+          : null,
     customerId: asString(data.customerId),
     customerName: asString(data.customerName),
     customerContactName: asString(data.customerContactName),
@@ -646,24 +636,38 @@ export function totalReceipts(receipts: RunReceipt[]): ReceiptTotals {
  */
 
 /**
- * Which trip of the day this run is for its crew — 1 for the first, 2 for the
- * next, and so on.
+ * Who was on the truck, as one readable line — "Juan, Pedro" — or an em dash
+ * when the run recorded nobody. Every screen and export names a run's people
+ * through this, so they all say it the same way.
+ */
+export function runAgentNames(run: Run): string {
+  return run.agents.map((agent) => agent.name).filter(Boolean).join(', ') || '—';
+}
+
+/**
+ * Which trip of the day this run is for the same people — 1 for the first, 2
+ * for the next, and so on.
  *
  * Counted here from the day's runs rather than read off `run.sequence`, and the
- * difference is a real one: the phone's counter is per crew **per account**, so
- * two logins taking the same crew out — one of them by mistake — both record
- * themselves as trip 1. The dashboard can see both runs at once, so it is the
+ * difference is a real one: the phone's counter is per agents **per account**,
+ * so two logins taking the same people out — one of them by mistake — both
+ * record themselves as trip 1. The dashboard can see both runs at once, so it is the
  * one place that can number them the way a reader would.
  *
  * Ordered by when each run started, with the id as a tie-break so the answer is
  * stable between renders. A run that isn't in the list falls back to what the
  * phone recorded.
  */
-export function crewTripNumber(run: Run, dayRuns: Run[]): number {
-  const crewOf = (candidate: Run) => candidate.agentGroupId || candidate.agentGroupName;
-  const crew = crewOf(run);
+export function tripNumber(run: Run, dayRuns: Run[]): number {
+  // The same people in any order are the same trip-mates.
+  const peopleOf = (candidate: Run) =>
+    candidate.agents
+      .map((agent) => agent.id)
+      .sort()
+      .join('|');
+  const people = peopleOf(run);
   const siblings = dayRuns
-    .filter((candidate) => candidate.businessDay === run.businessDay && crewOf(candidate) === crew)
+    .filter((candidate) => candidate.businessDay === run.businessDay && peopleOf(candidate) === people)
     .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
   const index = siblings.findIndex((candidate) => candidate.id === run.id);
   return index >= 0 ? index + 1 : run.sequence;
@@ -713,7 +717,7 @@ export type CollectedTotals = {
  *
  * Lives here beside `totalReceipts` rather than inside either export, because
  * both of them ask it: the run workbook's Collected sheet and the period
- * workbook's, plus every per-day, per-crew and per-store "still owed" figure.
+ * workbook's, plus every per-day, per-truck and per-store "still owed" figure.
  * One definition of what counts as collected is what keeps them agreeing.
  *
  * Note what is **not** here: "still owed". That is net takings less what was

@@ -42,7 +42,7 @@ export default function AppLayout() {
           <ReturnedBreadTypesProvider>
             <BusinessSettingsProvider>
               {/* SyncProvider sits below InventoryProvider because it reads the
-                  setup (which run this phone is on) and the area/truck/crew
+                  setup (which run this phone is on) and the truck/agent
                   names it stamps onto every upload. Nothing needs to sit below
                   *it*: the other contexts nudge sync through a module-level
                   hook in lib/sync.ts, not through this context. */}

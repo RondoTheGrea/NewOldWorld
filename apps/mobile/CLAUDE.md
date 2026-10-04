@@ -4,7 +4,7 @@
 
 The React Native / Expo app the drivers carry. This file covers everything on
 the phone. The monorepo-wide context — how to work with the owner, the shared
-`users/{uid}` role model, and the crew data model both surfaces read — is in the
+`users/{uid}` role model, and how agents are picked (no crews, no areas) — is in the
 root `CLAUDE.md`. The dashboard is documented in `apps/web/CLAUDE.md` and the
 backend, emulators and deploys in `firebase/CLAUDE.md`.
 
@@ -490,25 +490,22 @@ without a timezone database, so a missing tz database can't crash a print.
     columns are ordered **oldest first** at render, so Batch 1 is the first
     top-up as on the dashboard, even though the snapshot stores them newest
     first.
-- **The crew is snapshotted onto the receipt at finalize**, as a name
-  (`agent_group_name` / `agentGroupName`), and printed under the payment method
-  on the customer's copy. It is a snapshot for the same reason `customerName`
-  and every item's `name` are: renaming a crew next week must not contradict a
-  receipt somebody is holding. Reading it back off the run instead would do
-  exactly that — and the run id's crew segment is no substitute, since
-  `safeSegment` has already flattened `Alpha Crew` to `Alpha-Crew` and
-  unflattening it is guesswork.
+- **Who was on the truck is snapshotted onto the receipt at finalize**, as the
+  agents' names comma-separated (`agent_names` / `agentNames`, receipts.db
+  user_version 11), and printed under the payment method as **"Agents:"** on
+  the customer's copy. It is a snapshot for the same reason `customerName` and
+  every item's `name` are: renaming an agent next week must not contradict a
+  receipt somebody is holding.
 
-  **Nothing is backfilled**, so every receipt finalized before the column
-  existed carries `null` and every reader — the detail modal, the printed
-  receipt and its preview, the upload — leaves the line out rather than printing
-  a blank one. That is the honest answer: a closed run's crew isn't recoverable
-  from a receipt row. It is also why no row's `sync_state` is touched by the
-  migration (same call as `migrateCreditRename`): re-sending every past receipt
-  to add one field is a lot of traffic from a phone in a truck, for a name the
-  server can already read off the run those receipts hang under. Drafts have no
-  crew either — a receipt isn't filed under a run until it is finalized — which
-  never shows, because Preview and print are finalized-only.
+  It replaced a crew-name snapshot (`agent_group_name`, user_version 9) when
+  crews were removed. That column is still on the table and no longer read or
+  written; receipts finalized while crews existed therefore print and show no
+  agents line on the phone (the dashboard still reads their uploaded crew name
+  as a fallback). **Nothing is backfilled**, and no row's `sync_state` is
+  touched by either migration — re-sending every past receipt to add one field
+  is a lot of traffic from a phone in a truck. Drafts have no names either — a
+  receipt isn't filed under a run until it is finalized — which never shows,
+  because Preview and print are finalized-only.
 - **A finalized receipt can be voided — only from the run that is open, and
   only a receipt from that run.** The owner's rule, and it is enforced three
   times: the detail modal only shows **Void** when `runId` is set and equals the
@@ -664,7 +661,7 @@ count moves so the line updates while the modal is open.
 
 ## Expenses
 
-What the truck spent on a trip out — fuel, a toll, the crew's lunch. A title, an
+What the truck spent on a trip out — fuel, a toll, the agents' lunch. A title, an
 amount, and optional notes, and nothing else. `lib/expense-types.ts` (shape +
 sanitizer), `lib/expense-db.ts` (+ `.web.ts` stub, `expenses.db`),
 `context/expenses.tsx`, and two components: `components/expenses-card.tsx` on
@@ -672,7 +669,7 @@ Home and `components/expenses-modal.tsx` behind it.
 
 **It is informational, and that is the whole design.** Nothing subtracts an
 expense from anything: not a receipt, not the day's takings, not the run
-manifest's `salesTotal`, not an area's metrics on the dashboard, not the Trends
+manifest's `salesTotal`, not a truck's metrics on the dashboard, not the Trends
 charts. The dashboard shows it in its own section of the run panel, beside the
 takings rather than inside them, and both surfaces say so in words on screen —
 a peso figure under a day's sales invites exactly the assumption the feature
@@ -807,8 +804,8 @@ that storable — it is the only field there not collapsed to a single line.
 `constants/business.ts` only holds the
 last-resort defaults used before the first successful fetch or cache hit ever
 happens (a brand-new install finishing setup with zero connectivity). The old
-receipt's "Delivered by: <trucker names>" line has no equivalent here — this
-app has no trucker/crew assignment concept — so it's omitted.
+receipt's "Delivered by: <trucker names>" line is now the "Agents:" line (see
+"Receipts" above).
 
 ## Customers (the store list)
 
@@ -817,49 +814,24 @@ The Customers tab (`app/(app)/customers.tsx`) is a grid of store cards over
 one and only place a store is created — nothing else calls `addCustomer`, and
 the receipt form's store picker deliberately has no quick-add row).
 
-**Area and Crew are required on every save the form makes — a new store and an
-edit alike.** A store filed under neither is one the Customers tab's crew filter
-can never show and the server can never group, and the moment to ask is while
-somebody is standing in front of the shop.
-
-Stores already in Firestore from before this rule have nulls, and **the stored
-data is left exactly as it is**: `areaId` and `agentGroupId` stay
-`string | null`, nothing outside the form rejects a null, and no rule, migration
-or sync path rewrites or hides one. The requirement is about what a *form* may
-submit, not what the database may hold — which makes **opening one of those
-older stores for editing the moment it gets filled in**: the form asks for the
-missing area or crew before it will save anything else about that store. That
-also makes it a one-way ratchet, since the form has no way to *clear* either
-field. Every existing record already has a name and a store name, so those two
-never come up on an edit.
-
-For such a store the messages are on screen **from the moment the form opens**
-(`showErrors` starts true when `editing` is missing either), not after a failed
-press — letting a driver retype an address and only then be told would be a
-trap. The detail modal behind it shows the same gap as **"Not set"**, so the
-reason to open Edit is visible before it is opened. A store whose id *is* set
-but whose catalog isn't on this phone shows nothing there rather than "Not set"
-— that store is filed correctly and saying otherwise would be a lie.
-
-The accepted cost, decided by the owner: both pickers are filled from
-**downloaded** catalogs, so a phone that has never pulled them has nothing to
-choose from, and on that phone an older store can't be edited at all until it
-does. That is why both pickers' `emptyText` points at the depot ("Finish truck
-setup to download them") instead of the default "Nothing here yet" — an empty
-list is now the one thing that can stop an edit, and the fix for it isn't in
-this form.
+**A store has no area and no crew.** Both fields (and their required-field
+messages) were removed from the form, the card and the detail modal when areas
+and crews were removed on the owner's call (October 2026). The old SQLite
+columns (`area_id`, `agent_group_id`) are left on the table, unread and
+unwritten; copies already on the server keep the fields, and nothing reads
+them. **Neither store list has a filter any more** — the Customers tab and the
+receipt form's store picker both show every store on the phone.
 
 **The Save button is never disabled for a half-filled form**, and new code here
 must not re-introduce that. A greyed-out button is the one control that cannot
 say why it won't work: the driver presses it, nothing happens, and nothing on
 screen names the field that is missing. So it always presses, and an incomplete
-form answers with **"Store name is required"**, **"Name is required"**, **"Area
-is required"**, **"Crew is required"** — under the field each one is about, in
-`theme.danger`, with that field's outline turned red too. They appear on the
-first press (`showErrors`) — bar the one exception above — so a form nobody has
+form answers with **"Store name is required"** and **"Name is required"** —
+under the field each one is about, in `theme.danger`, with that field's outline
+turned red too. They appear on the first press (`showErrors`), so a form nobody has
 finished yet isn't already scolding the person filling it, and from then on each
 clears itself the moment its field is answered. The press also dismisses the keyboard and scrolls
-the list to the top: all four required fields sit above the optional ones, so
+the list to the top: both required fields sit above the optional ones, so
 the first message is always on screen even when Save was pressed from the
 bottom of a scrolled form. `handleSubmit` re-checks completeness itself rather
 than trusting its caller — it is the only path to a write and two things call
@@ -1133,7 +1105,7 @@ cover it — use them rather than inventing a fourth:
   almost never enough on its own: `[sync.receipt.blocked] permission-denied`
   names no receipt and no run, so nobody reading it later can go and look at
   the record. `runDetails()` in `context/sync.tsx` is the one place that words a
-  run for a log line — day, trip number, truck, crew, account, run id, with
+  run for a log line — day, trip number, truck, agents, account, run id, with
   captured *names* preferred over ids because a person reads these — and every
   drain passes it into `uploadOrSetAside`, which hands it to the quarantine log
   along with the row id. Two deliberate exceptions: stores get their own details
@@ -1290,13 +1262,8 @@ are quick throwaway selections — but takes a `closeOnBackdropPress={false}` to
 opt out. The receipt form's **customer picker** passes it: it sits on top of a
 half-typed receipt, so a stray thumb on the dim strip dismissing it lands the
 driver back on the form having lost their place in the store list. The ✕ is the
-way out there too. That picker also **resets its crew / all-stores toggle every
-time it opens** — to "All stores" only when the already-selected store sits
-outside the run's crew (the one case the crew filter would hide the current
-pick), and to the crew otherwise. The toggle is not a remembered preference, so
-browsing "All stores" once and closing doesn't leave it flipped for the next
-receipt (`scopeForSelection` in `receipt-form-modal.tsx`, fed to `DropdownField`'s
-`onOpen`).
+way out there too. It lists every store on the phone — the crew / all-stores
+toggle it used to carry was removed with crews.
 
 **Two actions ask before they commit**, because both are irreversible — nothing
 lowers stock but a sale, and nothing un-finalizes a receipt. Finalizing a
@@ -1384,7 +1351,7 @@ Three things in it are load-bearing:
 Full design and rationale: **`docs/sync-design.md`**. The essentials:
 
 Everything a truck does on one trip out is grouped into a **run** — one truck,
-one area, one crew, one trip out — and uploaded live in the
+the agents aboard it, one trip out — and uploaded live in the
 background. `runs/{runId}` is the header; `stockEntries` and `receipts` are its
 subcollections. Finishing the Inventory setup screen is what opens a run;
 "End the Day" closes it, clears the setup, and hands the driver back to the
@@ -1418,61 +1385,53 @@ noticed:
 - The manifest already covered the whole run rather than a day, so it needs
   nothing: it is counted per run and always was.
 
-**A run id is `${businessDay}_${agentGroupName}_${account}`, plus `_2`, `_3` …
-for repeat trips.** Both suffixes exist to stop a *silent* collision — in each
-case two runs would otherwise share one document, the later header overwriting
-the earlier, and whichever ends the day last destroying the other's manifest.
-Child documents survive either way (their ids are phone-minted and unique),
-which is what makes the failure quiet rather than obvious.
+**A run id is `${businessDay}_${agents}_${account}`, plus `_2`, `_3` … for
+repeat trips**, where `agents` is each ticked agent's name flattened and joined
+with `+` (`agentsRunIdSegment`), in the dashboard list's order — e.g.
+`2026-10-03_Juan-Dela-Cruz+Maria-Santos_juan@bakery.ph`. The owner asked for the
+id to say who went out. Both suffixes exist to stop a *silent* collision — in
+each case two runs would otherwise share one document, the later header
+overwriting the earlier, and whichever ends the day last destroying the other's
+manifest. Child documents survive either way (their ids are phone-minted and
+unique), which is what makes the failure quiet rather than obvious.
 
-- **The subject is the crew, not the truck.** A run is a crew's trip out, and a
-  truck can change under a crew mid-day (a breakdown, a swap at the depot) —
-  keying the id to the truck would file one trip under two names. `truckId` is
-  still stamped on the run and on every child document, so grouping a day by
-  truck is unaffected.
-- **The crew segment is the crew's *name*, not its document id** —
-  `2026-08-15_Alpha-Crew_juan@bakery.ph`, not `…_grp_9f2a1c_…`. A composed id
-  exists to be readable without a lookup table, and a crew id is only readable
-  next to the crew list. The crew's real id is still stamped on the run and on
-  every child document as `agentGroupId`, which is what the dashboard groups by,
-  so nothing downstream reads the string. Two consequences: the name is captured
-  when the run opens and the id is **pinned into the setup**, so renaming a crew
-  at noon can't re-point an open run at a document that doesn't exist; and a
-  name isn't unique like an id, so two crews sharing one (or two names that
-  flatten to one segment) are numbered `_1`/`_2` by `sequence` rather than
-  colliding. `finalizeSetup`'s local run count therefore compares the *segment*,
-  not `agentGroupId` — it has to count exactly what the composed id gathers
-  together, and with no signal it is the only thing that can.
-- **`account` — two phones can pick the same crew on the same day**, one of
+- **Names, not document ids**, because a composed id exists to be readable
+  without a lookup table. The real ids are still stamped on the run and on
+  every child document as `agentIds`. Two consequences: the names are captured
+  when the run opens and the id is **pinned into the setup**, so renaming an
+  agent at noon can't re-point an open run at a document that doesn't exist; and
+  a name isn't unique like an id, so two runs whose agents flatten to one
+  segment are numbered `_1`/`_2` by `sequence` rather than colliding.
+  `finalizeSetup`'s local run count therefore compares the *segment* — it has to
+  count exactly what the composed id gathers together, and with no signal it is
+  the only thing that can.
+- **Runs opened while crews existed were keyed on the crew's name**
+  (`…_Alpha-Crew_…`). Their ids are pinned, so they keep them.
+- **`account` — two phones can tick the same people on the same day**, one of
   them by mistake. Keyed on the login rather than a device tag so a reinstall
   rejoins the same run; a run is one *account's* trip out, which is what the
   manifest already means ("what the device believes it produced").
-- **`sequence` — one account may take one crew out twice.** Settled from two
-  sides, and neither alone is enough. A log of recent runs in AsyncStorage next
-  to the setup (`context/inventory.tsx`) gives the starting number, per account
-  **and per crew**, resetting each business day; `findFreeRunSequence`
-  (`lib/sync.ts`) then asks Firestore whether that id is actually free and takes
-  the next one if it isn't. The log covers a run whose header hasn't uploaded
-  yet — a morning out of signal — which the server can't know about; Firestore
-  covers a run this handset has no memory of, because it was reinstalled or
-  replaced between trips, or because a second handset is signed in to the same
-  login. **The probe never blocks setup**: it is short-timeout, and with no
-  signal it falls back to the local count, which is what the phone ran on
-  outright before. **An id that exists is taken**, whoever wrote it and whether
-  or not it is closed — so a reinstalled phone no longer recomputes its way back
-  onto the morning's run, which it could not really rejoin anyway (the local
-  databases went with the reinstall, so the truck is re-counted from scratch and
-  that run would close with a manifest describing only the afternoon). It gets a
-  fresh number and the morning's run stays open and unmanifested, which the
-  dashboard shows as a run that never ended. Counting per truck rather than per
-  crew would number a crew's second trip as 1 again whenever it swapped trucks,
-  which recomputes the morning's id and merges the two trips into one document.
+- **`sequence` — one account may take the same people out twice.** Settled from
+  two sides, and neither alone is enough. A log of recent runs in AsyncStorage
+  next to the setup (`context/inventory.tsx`) gives the starting number, per
+  account **and per agents segment**, resetting each business day;
+  `findFreeRunSequence` (`lib/sync.ts`) then asks Firestore whether that id is
+  actually free and takes the next one if it isn't. The log covers a run whose
+  header hasn't uploaded yet — a morning out of signal — which the server can't
+  know about; Firestore covers a run this handset has no memory of, because it
+  was reinstalled or replaced between trips, or because a second handset is
+  signed in to the same login. **The probe never blocks setup**: it is
+  short-timeout, and with no signal it falls back to the local count. **An id
+  that exists is taken**, whoever wrote it and whether or not it is closed — so a
+  reinstalled phone no longer recomputes its way back onto the morning's run,
+  which it could not really rejoin anyway (the local databases went with the
+  reinstall). It gets a fresh number and the morning's run stays open and
+  unmanifested, which the dashboard shows as a run that never ended.
 - **The composed id and all of it is pinned into `InventorySetup` at
   finish-setup time, never read fresh.** Logging out does *not* end a run, so an
   agent swap on one handset must not re-point an open run at a different
   document — rows already written carry the old id. `composeLegacyTruckRunId`
-  exists only for a run that was already open when the crew-keyed build
-  arrived.
+  exists only for a run that was already open when name-keyed ids arrived.
 - `safeSegment` in `lib/sync-types.ts` **must stay injective.** Two earlier
   versions weren't: deleting punctuation merged `juan.delacruz@` with
   `juandelacruz@`, and replacing it with `-` merged it with `juan-delacruz@` —
@@ -1493,7 +1452,7 @@ which is what makes the failure quiet rather than obvious.
   as it did when they shared a `Promise.all` and a `try`. If the log can't
   supply the open run, `rebuildRunFromSetup` reconstructs it from the setup,
   which pins the id, start time, trip number and the three picked ids; only the
-  display names and crew membership are re-resolved from the catalogs, and
+  display names are re-resolved from the catalogs, and
   `createdByUid` comes from the signed-in account because rules would refuse any
   other value anyway. Without it, `runId` set with `currentRun` null was a dead
   end nothing handled: "End the Day" silently did nothing, the header never
@@ -1539,7 +1498,7 @@ Rules that are easy to break and expensive to get wrong:
   from a timestamp — a browser in another timezone files early-morning receipts
   under the previous day.
 - **Every child document repeats the run's identity** (`runId`, `businessDay`,
-  `areaId`, `truckId`, `agentGroupId`, `agentIds`, `createdByUid`). Uploads land in whatever
+  `truckId`, `agentIds`, `createdByUid`). Uploads land in whatever
   order the signal allows, so a child must make sense before its parent exists.
 - **`recordSale` uploads its ledger entry even though the receipt lists the
   same items.** Finalizing writes two databases in two transactions, so a crash
@@ -1815,15 +1774,15 @@ context gets it.
   otherwise make the comparator inconsistent, which on some engines is a crash
   rather than a wrong list.
 
-Areas, trucks and agents are **dashboard-owned** (`apps/web/src/pages/reference-lists.tsx`)
+Trucks and agents are **dashboard-owned** (`apps/web/src/pages/reference-lists.tsx`)
 and read-only on mobile. Trucks and agents used to live in each phone's
 AsyncStorage, which minted a device-local id and made grouping anything by
 truck impossible — that's why they moved, not tidiness.
 
 They run on the shared catalog hook but with **`fetchOnMount: false`**: each is
-fetched when *its own picker opens* (`ensureAreasLoaded` / `ensureTrucksLoaded`
-/ `ensureAgentGroupsLoaded`), tries the server fresh every time, and drops back
-to the saved copy in silence if it can't. All three pass `isEmpty`, so a query
+fetched when *its own picker opens* (`ensureTrucksLoaded` /
+`ensureAgentsLoaded`), tries the server fresh every time, and drops back to the
+saved copy in silence if it can't. Both pass `isEmpty`, so a query
 that comes back with zero documents can't overwrite the saved copy *and the
 disk* — that failure would strand a truck at the setup screen with nothing to
 pick, every restart, until it found signal. They are deliberately **not** in the
@@ -1832,7 +1791,7 @@ has just picked from those lists, so re-downloading them would gate finishing
 setup on data that is already as fresh as the signal allowed. Don't add them
 back to that array.
 
-All three also respect the **manual `order`** the manager sets by dragging rows
+Both also respect the **manual `order`** the manager sets by dragging rows
 on the dashboard. The Firestore query still asks for *name* order, because
 `orderBy('order')` silently drops any document that doesn't carry the field;
 the manager's order is applied after the read, with a missing `order` sorting to

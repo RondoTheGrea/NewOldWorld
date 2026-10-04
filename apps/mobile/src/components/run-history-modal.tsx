@@ -197,7 +197,7 @@ function RunListView({
           ]}>
           <View style={styles.runRowText}>
             <ThemedText type="smallBold">
-              {run.truckName} · {run.areaName}
+              {run.truckName}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">{run.businessDay}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
@@ -235,7 +235,7 @@ function RunDetailView({
     <ScrollView style={styles.fill} contentContainerStyle={styles.detailList}>
       <View style={styles.detailHeader}>
         <ThemedText type="smallBold">
-          {detail.truckName} · {detail.areaName}
+          {detail.truckName}
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary">{detail.businessDay}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
@@ -251,14 +251,9 @@ function RunDetailView({
         total={detail.totalInventory}
       />
       <RunOutcomeTable total={detail.totalInventory} sold={detail.sold} returned={detail.returned} />
-      {/* The crew and its members, both named. The crew is what was assigned;
-          the names are who it held that day, which stays true even after
-          somebody is moved to another crew on the dashboard. */}
+      {/* Who was on the truck, as their names read when the day started. */}
       <View style={styles.assignedAgents}>
-        <ThemedText type="smallBold">Crew</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {detail.agentGroupName || 'No crew recorded'}
-        </ThemedText>
+        <ThemedText type="smallBold">Agents</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
           {detail.agentNames.length > 0 ? detail.agentNames.join(', ') : 'No agents recorded'}
         </ThemedText>

@@ -1,5 +1,5 @@
 import { SymbolView } from 'expo-symbols';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -60,9 +60,8 @@ type DropdownFieldBase = {
   required?: boolean;
   /**
    * One line under the trigger, saying something about *this* field's current
-   * state that the placeholder can't — the customer form uses it both to point
-   * out an area or crew an older store was saved without, and to say the field
-   * is required once Save has been pressed without one.
+   * state that the placeholder can't — e.g. that the field is required, once
+   * Save has been pressed without it.
    *
    * Not the same thing as `errorText`, which is the picker's own *fetch*
    * failure and shows inside the open list.
@@ -95,24 +94,10 @@ type DropdownFieldBase = {
    */
   closeOnBackdropPress?: boolean;
   /**
-   * Extra content rendered inside the picker sheet, below the title row and
-   * above the search box (or list) — e.g. the receipt form's crew/all store
-   * scope toggle. Every other caller omits it.
-   */
-  header?: ReactNode;
-  /**
-   * A short-lived, non-interactive overlay pinned to the bottom of the picker
-   * sheet — e.g. `components/scope-toast.tsx` confirming a scope change. The
-   * caller is responsible for making it untouchable (`pointerEvents="none"`)
-   * so it never blocks the list underneath it.
-   */
-  toast?: ReactNode;
-  /**
    * The selected option's data, used only to label the trigger when `value`
-   * points at something the caller has deliberately kept out of `options` — the
-   * receipt form's store picker hides a store that sits outside the crew filter
-   * from the list, but the receipt is still for that store and the trigger has
-   * to keep saying so. It is never added to the list itself. Ignored when
+   * points at something that isn't in `options` — e.g. a receipt draft whose
+   * store has since gone from the list, which the trigger still has to name.
+   * It is never added to the list itself. Ignored when
    * `multiple`.
    */
   pinnedSelection?: DropdownOption;
@@ -149,8 +134,6 @@ export function DropdownField(props: DropdownFieldProps) {
     tall,
     closeOnBackdropPress,
     emptyText,
-    header,
-    toast,
     pinnedSelection,
   } = props;
   const theme = useTheme();
@@ -332,8 +315,6 @@ export function DropdownField(props: DropdownFieldProps) {
                 </Pressable>
               </View>
 
-              {header && !adding && <View style={styles.headerExtra}>{header}</View>}
-
               {searchable && !adding && (
                 <View
                   style={[styles.searchChrome, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
@@ -470,8 +451,6 @@ export function DropdownField(props: DropdownFieldProps) {
                   }
                 />
               )}
-
-              {toast}
             </View>
           </View>
         </View>
@@ -580,9 +559,6 @@ const styles = StyleSheet.create({
   },
   headerText: {
     flex: 1,
-  },
-  headerExtra: {
-    marginBottom: Spacing.two,
   },
   loadingWrap: {
     flex: 1,

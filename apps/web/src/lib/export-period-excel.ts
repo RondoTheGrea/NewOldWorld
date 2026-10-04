@@ -42,14 +42,14 @@ import type {
   PeriodReceiptItem,
 } from '@/lib/period-summary';
 import { paymentLabel } from '@/lib/payment-methods';
-import { describeRunEnd, runEndDay } from '@/lib/runs';
+import { describeRunEnd, runAgentNames, runEndDay } from '@/lib/runs';
 
 /**
  * The period workbook — a range of business days as eight sheets.
  *
  * The run export answers "what happened on this trip". This one answers the
- * questions a *month* gets asked, and they are different questions: which crew
- * is ahead, which round is worth the fuel, which bread nobody is buying, which
+ * questions a *month* gets asked, and they are different questions: which truck
+ * is ahead, which bread nobody is buying, which
  * store has stopped ordering, and how much of the money is still out there.
  * None of those can be read off one run, and none of them were answerable on
  * this dashboard before.
@@ -65,7 +65,7 @@ import { describeRunEnd, runEndDay } from '@/lib/runs';
  * | Sheet | The question |
  * | --- | --- |
  * | Summary | How did we do? |
- * | Breakdown | What shape was the period (by day)? Who performed (by crew)? Which rounds are worth working (by area)? |
+ * | Breakdown | What shape was the period (by day)? Which truck performed (by truck)? |
  * | Bread | What moved, and what does it earn? |
  * | Stores | Who buys and who owes? |
  * | Collected | How did the money come in? |
@@ -73,9 +73,8 @@ import { describeRunEnd, runEndDay } from '@/lib/runs';
  * | Runs | Show me every trip. |
  * | Receipts | Show me every receipt — voided ones too, struck through and not counted. |
  *
- * On the Breakdown sheet crew leads area, deliberately, the way the Trends tab
- * orders its charts: an area is a *round*, and the comparison worth making is
- * two crews working the same one.
+ * (The Breakdown sheet had "by crew" and "by area" sections; crews and areas
+ * were removed on the owner's call, and "by truck" took their place.)
  *
  * ## Rules the whole workbook keeps
  *
@@ -89,7 +88,7 @@ import { describeRunEnd, runEndDay } from '@/lib/runs';
  *   why. "Stores" is the recurring one: the same shop served on two days is one
  *   shop, so those counts genuinely cannot be added.
  * - **"Stores" means one thing everywhere in this workbook** — on the day rows,
- *   the crew and area rollups, each run, each bread, and the Summary's "Stores
+ *   the truck rollup, each run, each bread, and the Summary's "Stores
  *   served": the number of *different* shops served, counted as a set of
  *   `customerId`, so a shop served five times counts once and a receipt naming
  *   no shop counts nowhere. Every sheet carrying it says so in a footnote, and
@@ -348,7 +347,7 @@ function noteUnder<T>(sheet: ExcelJS.Worksheet, table: Table<T>, notes: string[]
  *
  * `collected: true` adds the pair that splits net into the money that is in and
  * the money somebody has to go and get. **Only the Runs sheet asks for it.** The
- * day, crew and area rollups were cut back to the takings on the owner's call —
+ * day and truck rollups were cut back to the takings on the owner's call —
  * what is still out there is a question about the period, and the Summary and
  * the Collected sheet are where it is answered; the Stores sheet is where it is
  * chased. Repeating the split on every rollup only widened four sheets.
@@ -378,12 +377,11 @@ function moneyColumns<
  *
  * Every "Stores" figure in this workbook is the size of a set of `customerId`:
  * the shops actually served, with the same shop served twice counting once and a
- * receipt naming no shop counting nowhere. The day rows, the crew and area
- * rollups, each run and the Summary's "Stores served" are all that one number,
+ * receipt naming no shop counting nowhere. The day rows, the truck rollup, each run and the Summary's "Stores served" are all that one number,
  * which is why none of them is ever totalled — adding the counts would double
  * every shop two trucks called on.
  *
- * It was six sheet-specific wordings first ("the shops this crew served", "the
+ * It was six sheet-specific wordings first ("the shops this truck served", "the
  * shops served on this round"). One sentence is better: a reader moving between
  * tabs recognises the note instead of reading it again, and six phrasings of one
  * rule is six chances for them to drift into meaning six things.
@@ -464,7 +462,7 @@ export async function exportPeriodToExcel({ summary }: ExportPeriodExcelInput): 
 }
 
 // ---------------------------------------------------------------------------
-// Breakdown — by day, by crew, by area
+// Breakdown — by day, by truck
 // ---------------------------------------------------------------------------
 
 /**
@@ -494,22 +492,23 @@ const SectionTitleRowHeight = 32;
 const SectionLeadFont: Partial<ExcelJS.Font> = { color: { argb: MutedColor } };
 
 /**
- * The period cut three ways on one sheet: **by day, by crew, by area**, stacked
- * top to bottom in that order.
+ * The period cut two ways on one sheet: **by day, then by truck**, stacked top
+ * to bottom in that order.
  *
- * They were three tabs — By day, By crew, By area — until September 2026, when
- * the owner asked for one. They are the same figures summed along three
- * different lines, with the same loaf and money columns and a totals row that
- * comes to the same amount in all three, so one sheet lets a reader hold "the
- * month by day" against "the month by crew" without flipping tabs. The tab is
+ * They were separate tabs (By day, By crew, By area) until September 2026, when
+ * the owner asked for one; crews and areas were later removed and By truck took
+ * their place. The sections are the same figures summed along different lines,
+ * with the same loaf and money columns and a totals row that comes to the same
+ * amount in each, so one sheet lets a reader hold "the month by day" against
+ * "the month by truck" without flipping tabs. The tab is
  * called **Breakdown** because that is what it is: the Summary's totals, broken
  * down. Each section is headed with the old tab's own name, so nothing a reader
  * learned to look for has moved further than a scroll.
  *
- * **Every figure sits in the same column in all three sections.** The day table
- * has two label columns (Day, Weekday) where a crew or an area has one name, so
+ * **Every figure sits in the same column in every section.** The day table
+ * has two label columns (Day, Weekday) where a truck has one name, so
  * that name is merged across A:B. Without it Runs would be column C in one table
- * and B in the next, and three Net columns would sit at three different offsets
+ * and B in the next, and the Net columns would sit at different offsets
  * on the same sheet — the comparison stacking them was meant to make easy is the
  * one the sheet would make hard. And **every column on the sheet is the same
  * width** — the owner found columns of different widths stacked on each other
@@ -519,12 +518,12 @@ const SectionLeadFont: Partial<ExcelJS.Font> = { color: { argb: MutedColor } };
  * the table in its frame. Between one section and the next are `SectionGap`
  * blank rows with a full-width grey line through the middle of them, on the
  * owner's call — blank rows alone left the sections reading as one long sheet
- * with gaps in it, where a line says plainly that one part has ended. Nothing is frozen: with three header rows on the sheet, no
+ * with gaps in it, where a line says plainly that one part has ended. Nothing is frozen: with several header rows on the sheet, no
  * one of them can stay pinned.
  *
  * **Notes:** the two that apply to every section (Stores, expenses) are written
  * once at the foot of the sheet, in the workbook's usual place for notes, rather
- * than three times over; the crew-rename note belongs to one section and sits
+ * than once per section; the truck-rename note belongs to one section and sits
  * under it.
  *
  * The day table is the spine of the workbook — every calendar day, empty ones
@@ -533,14 +532,11 @@ const SectionLeadFont: Partial<ExcelJS.Font> = { color: { argb: MutedColor } };
  * what a manager reads off it is a weekly rhythm, and counting rows to work out
  * which day is a Tuesday is work the sheet can do for them.
  *
- * The crew and area tables share every column but their first heading, so they
- * share one column list and cannot drift into two answers to the same question
- * asked from either end. Both were wider once: "Days out", the counterpart
- * count, collected, still owed and the two net-per averages came out on the
- * owner's call — eleven columns of context buried the work done. Their rows
- * follow the dashboard's own order for crews and areas (`toGroupRows`), not the
- * takings, which is why the Summary's "Best crew" searches for the top net
- * rather than reading the first row.
+ * The truck table was wider once: "Days out", collected, still owed and the two
+ * net-per averages came out on the owner's call — eleven columns of context
+ * buried the work done. Its rows follow the dashboard's own order for trucks
+ * (`toGroupRows`), not the takings, which is why the Summary's "Best truck"
+ * searches for the top net rather than reading the first row.
  */
 function buildBreakdownSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): Table<PeriodDayRow> {
   const dayColumns: TableColumn<PeriodDayRow>[] = [
@@ -551,8 +547,8 @@ function buildBreakdownSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): 
     { header: 'Stores', value: (row) => row.stores, format: 'count' },
     ...loafColumns<PeriodDayRow>(),
     ...moneyColumns<PeriodDayRow>(),
-    // The same column in the same place as the crew and area tables below, so
-    // all three sections end on it. Blank on a day with no sales, and never
+    // The same column in the same place as the truck table below, so both
+    // sections end on it. Blank on a day with no sales, and never
     // totalled: an average of averages is not the average.
     { header: 'Returns %', value: (row) => share(row.returns, row.sales), format: 'percent' },
   ];
@@ -628,26 +624,21 @@ function buildBreakdownSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): 
   );
   place(
     {
-      title: 'By crew',
-      lead: 'One row per crew, in the order the dashboard lists them.',
+      title: 'By truck',
+      lead: 'One row per truck, in the order the dashboard lists them.',
       notes: [
-        'Each crew is named as it was when its run started, so a crew renamed part-way through the period keeps both names — and both sets of figures.',
+        'Each truck is named as it was when its run started, so a truck renamed part-way through the period keeps both names — and both sets of figures.',
       ],
       mergeLabel: true,
     },
-    groupColumns('Crew'),
-    summary.crews,
-  );
-  place(
-    { title: 'By area', lead: 'One row per area, in the order the dashboard lists them.', mergeLabel: true },
-    groupColumns('Area'),
-    summary.areas,
+    groupColumns('Truck'),
+    summary.trucks,
   );
 
-  // Every column on the sheet is one width, on the owner's call: three stacked
+  // Every column on the sheet is one width, on the owner's call: stacked
   // tables whose columns jump between narrow and wide read as ragged, where one
   // even grid reads as one sheet. The width is the widest thing any column in
-  // any section needs. A crew's or an area's name is merged across A:B, so it
+  // any section needs. A truck's name is merged across A:B, so it
   // only has to fit in two columns — half of it counts — and it is held to
   // `autoWidth`'s usual cap so one very long name can't stretch every column.
   const MaxLabel = 44;
@@ -756,7 +747,6 @@ function buildStoresSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): Tab
     { header: 'Store', value: (row) => row.name },
     { header: 'Contact', value: (row) => row.contact || '—' },
     { header: 'Phone', value: (row) => row.phone || '—' },
-    { header: 'Area', value: (row) => row.area || '—' },
     { header: 'Receipts', value: (row) => row.receipts, format: 'count', total: 'sum' },
     { header: 'Loaves', value: (row) => row.loaves, format: 'count', total: 'sum' },
     { header: 'Sales', value: (row) => row.sales, format: 'money', total: 'sum' },
@@ -776,7 +766,7 @@ function buildStoresSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): Tab
   const notes: string[] = [StoreRowsNote];
   if (summary.storeDetailsMissing) {
     notes.push(
-      'The store list could not be read this time, so the contact, phone and area columns are blank. Every figure is still taken from the receipts themselves.',
+      'The store list could not be read this time, so the contact and phone columns are blank. Every figure is still taken from the receipts themselves.',
     );
   }
   noteUnder(sheet, table, notes);
@@ -851,7 +841,7 @@ function buildExpensesSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): T
   const itemColumns: TableColumn<PeriodExpenseItem>[] = [
     { header: 'Day', value: (row) => row.day },
     { header: 'Time', value: (row) => formatBusinessTime(row.createdAt) },
-    { header: 'Crew', value: (row) => row.crew },
+    { header: 'Agents', value: (row) => row.agents, width: TextColumnWidth },
     { header: 'Truck', value: (row) => row.truck },
     { header: 'What for', value: (row) => row.title },
     { header: 'Notes', value: (row) => row.notes || '—', width: TextColumnWidth },
@@ -860,8 +850,8 @@ function buildExpensesSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): T
   const items = addTable(sheet, itemColumns, summary.expenseItems, { totalLabel: 'Total spent' });
   sizeSheet(sheet, items, summary.expenseItems);
   noteUnder(sheet, items, [
-    'Expenses are recorded by the crew as trip notes. They are not deducted from sales or net anywhere in this file.',
-    'An expense the crew removed on the phone is not listed and is in no total here.',
+    'Expenses are recorded by the agents as trip notes. They are not deducted from sales or net anywhere in this file.',
+    'An expense removed on the phone is not listed and is in no total here.',
   ]);
   return items;
 }
@@ -876,8 +866,7 @@ function buildExpensesSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): T
  *
  * The truck lives here rather than on a sheet of its own. "Is a truck sitting
  * idle" is a real question, and sorting this column answers it without a tenth
- * tab that would only repeat the crew sheet's columns under a different
- * heading.
+ * tab that would only repeat the Breakdown sheet's truck columns.
  *
  * A run that outlived the day it went out has its end date spelled out
  * (`describeRunEnd`), exactly as the board does it, so a bare time can never be
@@ -886,10 +875,8 @@ function buildExpensesSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): T
 function buildRunsSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): Table<PeriodRunRow> {
   const columns: TableColumn<PeriodRunRow>[] = [
     { header: 'Day', value: (row) => row.run.businessDay },
-    { header: 'Crew', value: (row) => row.run.agentGroupName || '—' },
-    { header: 'Agents', value: (row) => row.run.agents.map((agent) => agent.name).join(', ') || '—', width: TextColumnWidth },
+    { header: 'Agents', value: (row) => runAgentNames(row.run), width: TextColumnWidth },
     { header: 'Truck', value: (row) => row.run.truckName || '—' },
-    { header: 'Area', value: (row) => row.run.areaName || '—' },
     { header: 'Started', value: (row) => (row.run.startedAt ? formatBusinessTime(row.run.startedAt) : '—') },
     { header: 'Ended', value: (row) => (row.run.status === 'closed' ? describeRunEnd(row.run) : 'Still out') },
     {
@@ -904,7 +891,7 @@ function buildRunsSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): Table
     ...loafColumns<PeriodRunRow>(),
     // The only sheet that still splits net into collected and still-owed — see
     // `moneyColumns`. A trip is where "who has not paid yet" is actually chased
-    // from, because it names the crew that was there.
+    // from, because it names the agents who were there.
     ...moneyColumns<PeriodRunRow>({ collected: true }),
     { header: 'Status', value: (row) => runStatusLabel(row) },
   ];
@@ -968,7 +955,7 @@ function buildReceiptsSheet(sheet: ExcelJS.Worksheet, rows: PeriodReceiptItem[])
     { header: 'Day', value: (row) => row.day },
     { header: 'Time', value: (row) => formatBusinessTime(row.createdAt) },
     { header: 'Store', value: (row) => row.store },
-    { header: 'Crew', value: (row) => row.crew },
+    { header: 'Agents', value: (row) => row.agents, width: TextColumnWidth },
     { header: 'Truck', value: (row) => row.truck },
     { header: 'Payment', value: (row) => (row.paymentMethod ? paymentLabel(row.paymentMethod) : '—') },
     // Beside Payment, as on the run workbook: the two are read together — a
@@ -1032,7 +1019,8 @@ function buildReceiptsSheet(sheet: ExcelJS.Worksheet, rows: PeriodReceiptItem[])
  *
  * It was a longer page. Days a truck went out, crews out, trucks used, areas
  * covered, the two loaf shares, the two bread-type counts and the three
- * net-per-something averages all came out on the owner's call. What is left is
+ * net-per-something averages all came out on the owner's call (crews and areas
+ * have since been removed altogether). What is left is
  * the period, the bread and the money, and nothing a reader has to work out what
  * it is a ratio of.
  */
@@ -1108,8 +1096,7 @@ function buildSummarySheet(
     [
       `${summary.days.length} day${summary.days.length === 1 ? '' : 's'}`,
       `${totals.runs} run${totals.runs === 1 ? '' : 's'}`,
-      `${totals.crews} crew${totals.crews === 1 ? '' : 's'}`,
-      `${totals.areas} area${totals.areas === 1 ? '' : 's'}`,
+      `${totals.trucks} truck${totals.trucks === 1 ? '' : 's'}`,
     ].join(' · '),
     { color: { argb: MutedColor } },
   );
@@ -1129,7 +1116,7 @@ function buildSummarySheet(
       .slice(0, NamedLimit)
       .map(
         (row) =>
-          `${row.run.agentGroupName || 'No crew'} (${row.run.truckName || 'no truck'}, ${formatBusinessDayShort(row.run.businessDay)})`,
+          `${row.run.truckName || 'No truck'} (${runAgentNames(row.run)}, ${formatBusinessDayShort(row.run.businessDay)})`,
       )
       .join(', ');
     const more = openRuns.length > NamedLimit ? ` and ${openRuns.length - NamedLimit} more` : '';
@@ -1166,12 +1153,11 @@ function buildSummarySheet(
     CountFormat,
   );
   detailRow = line(detailRow, DetailCol, 'Stores served', totals.stores, CountFormat);
-  // Excel flushes a number right and text left, so these two names would sit
-  // against the opposite edge of the same column every figure above them lines
-  // up on — one block with two values adrift in it. Aligned by hand, the value
-  // column has a single right edge from "From" to "Best area".
-  detailRow = right(line(detailRow, DetailCol, 'Best crew', bestName(summary.crews)), DetailCol);
-  detailRow = right(line(detailRow, DetailCol, 'Best area', bestName(summary.areas)), DetailCol);
+  // Excel flushes a number right and text left, so this name would sit
+  // against the opposite edge of the same column every figure above it lines
+  // up on. Aligned by hand, the value column has a single right edge from
+  // "From" to "Best truck".
+  detailRow = right(line(detailRow, DetailCol, 'Best truck', bestName(summary.trucks)), DetailCol);
 
   // What physically moved. Loaded minus sold is what came home; returned bread
   // is a separate figure and the notes at the foot say why.
@@ -1237,7 +1223,7 @@ function buildSummarySheet(
     'Almost every figure on this page is a formula pointing at the sheet that owns it, so correcting a number there updates this one.',
     StoresNote,
     'Returned bread is credited to the store but never goes back on the truck, so "left on the trucks" is loaded minus sold.',
-    'Expenses are recorded by the crew as trip notes. They are not deducted from sales or net.',
+    'Expenses are recorded by the agents as trip notes. They are not deducted from sales or net.',
   ];
   if (summary.receipts.some((row) => row.voidedAt !== null)) {
     notes.push(
@@ -1272,11 +1258,11 @@ function buildSummarySheet(
 }
 
 /**
- * The crew (or area) with the highest net takings, named — or a dash, because
+ * The truck with the highest net takings, named — or a dash, because
  * "best" of nothing is not a name.
  *
  * **Searched for, not read off the top row.** The rows follow the dashboard's
- * own order rather than the takings, so the first one is simply whichever crew
+ * own order rather than the takings, so the first one is simply whichever truck
  * is listed first. On a tie the one listed first wins.
  */
 function bestName(rows: PeriodGroupRow[]): string {

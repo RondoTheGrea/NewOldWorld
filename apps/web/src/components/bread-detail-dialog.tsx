@@ -21,10 +21,9 @@ const StoreListCap = 25;
  * One bread type, opened from the Trends tab's bread chart.
  *
  * **What it is for.** The chart answers "what moved" for every bread at once;
- * the next question a manager asks is always about one of them — which crew
- * shifts it, which round it sells on, which shops take it and which have
- * quietly stopped. Those are three cuts of the same loaves, so they are three
- * blocks of one dialog rather than three more cards on a tab that is already
+ * the next question a manager asks is always about one of them — which truck
+ * shifts it, which shops take it and which have quietly stopped. Those are two
+ * cuts of the same loaves, so they are two blocks of one dialog rather than three more cards on a tab that is already
  * long.
  *
  * **A dialog, not a drawer.** The page's own rule (see `.ops-dialog` in
@@ -74,7 +73,7 @@ export function BreadDetailDialog({
   series: { label: string; color: string }[];
   /** "1–31 August 2026" — which period these figures are. */
   rangeLabel: string;
-  /** " for Crew A in Cainta", or empty when nothing is filtered. */
+  /** " for Truck 1", or empty when nothing is filtered. */
   scope: string;
   failed: boolean;
   loading: boolean;
@@ -127,7 +126,7 @@ export function BreadDetailDialog({
             note uses — the dialog covers that note, so it has to carry it. */}
         <p className="ops-dialog-note">
           {rangeLabel}
-          {scope || ', across every crew and area'}.{loading && ' Still reading receipts…'}
+          {scope || ', across every truck'}.{loading && ' Still reading receipts…'}
           {failed && ' Some runs could not be read, so the figures may be short.'}
         </p>
 
@@ -160,10 +159,9 @@ export function BreadDetailDialog({
           </ChartEmpty>
         ) : (
           <>
-            <SliceBlock title="By crew" lead="Crew" slices={detail.crews} series={series} />
-            <SliceBlock title="By area" lead="Area" slices={detail.areas} series={series} />
+            <SliceBlock title="By truck" lead="Truck" slices={detail.trucks} series={series} />
 
-            {/* The stores are a list, not a chart. A crew or an area is a
+            {/* The stores are a list, not a chart. The trucks are a
                 handful of rows a bar can compare at a glance; the shops that
                 take one bread run to dozens, and what is wanted of them is a
                 roll call with a date on it — who takes the most, and who has
@@ -228,13 +226,13 @@ export function BreadDetailDialog({
 }
 
 /**
- * One cut of the bread — the crews, or the areas — drawn as the same split bar
+ * One cut of the bread — the trucks — drawn as the same split bar
  * the chart behind the scrim uses.
  *
  * Deliberately the *same* component and the same two colours: a reader who has
  * just clicked a blue-and-orange row should find blue and orange meaning the
  * same two things one layer in. No `extras` columns here, though — a rate and
- * a store count are what the section's rows carry, and repeating them per crew
+ * a store count are what the section's rows carry, and repeating them per truck
  * would be four figures on a row in a box half the width.
  */
 function SliceBlock({

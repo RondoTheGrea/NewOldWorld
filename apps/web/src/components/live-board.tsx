@@ -10,19 +10,19 @@ import {
   formatDuration,
   shiftBusinessDay,
 } from '@/lib/business-day';
-import { watchAgentGroups, type AgentGroup } from '@/lib/agent-groups';
 import { watchBreadTypes, type BreadType } from '@/lib/bread-types';
 import { watchReturnedBreadTypes, type ReturnedBreadType } from '@/lib/returned-bread-types';
 import { watchNamedRecords, type NamedRecord } from '@/lib/named-records';
 import {
   countBusinessDays,
-  crewTripNumber,
   describeRunEnd,
   formatCount,
   formatMoney,
+  runAgentNames,
   runEndDay,
   runSpansDays,
   totalReceipts,
+  tripNumber,
   watchRunExpenses,
   watchRunReceipts,
   watchRunStockEntries,
@@ -36,14 +36,13 @@ import {
 /**
  * The Live tab: one business day, as it happens.
  *
- * The unit is the **area**, because that is the unit the business runs on: a
- * truck serves one area for one trip out, and "how is Cainta doing" is a
- * question with an answer, while "how is Truck 2 doing" depends on where it
- * went. Each area holds its runs; each run opens into its own panel.
+ * One list of the day's runs — each a truck and the agents aboard it — and each
+ * run opens into its own panel. (Runs used to be grouped under the area each
+ * truck served; areas were removed on the owner's call.)
  *
  * Everything here is live. The runs of a day, and every run's receipts and
  * ledger entries, are Firestore snapshot listeners — a receipt finalized on a
- * phone in Cainta appears as soon as it uploads, with no refresh.
+ * phone appears as soon as it uploads, with no refresh.
  *
  * **A day is a Manila day, matched on the string the phone wrote.** The date
  * picker only decides which day to ask for; nothing here derives a day from a
@@ -59,9 +58,8 @@ export function LiveBoard() {
   const [day, setDay] = useState(currentBusinessDayKey);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [runsError, setRunsError] = useState<string | null>(null);
-  const [areas, setAreas] = useState<NamedRecord[]>([]);
-  // Only the summary export reads these — it lists crews in the dashboard's order.
-  const [agentGroups, setAgentGroups] = useState<AgentGroup[]>([]);
+  // Only the summary export reads these — it lists trucks in the dashboard's order.
+  const [trucks, setTrucks] = useState<NamedRecord[]>([]);
   // The whole catalog, not just its names: the run panel's Inventory and
   // Outcome tables list bread in the catalog's own manual order (see
   // watchBreadTypes), so it needs the rows, in that order.
@@ -85,16 +83,14 @@ export function LiveBoard() {
     );
   }, [day]);
 
-  useEffect(() => watchNamedRecords('areas', setAreas), []);
-
-  useEffect(() => watchAgentGroups(setAgentGroups), []);
+  useEffect(() => watchNamedRecords('trucks', setTrucks), []);
 
   useEffect(() => watchBreadTypes(setBreadTypes), []);
 
   useEffect(() => watchReturnedBreadTypes(setReturnedBreadTypes), []);
 
   const records = useRunRecords(runs);
-  const groups = useMemo(() => groupByArea(areas, runs ?? []), [areas, runs]);
+  const sortedRuns = useMemo(() => sortRuns(runs ?? []), [runs]);
   const dayReceipts = useMemo(
     () => (runs ?? []).flatMap((run) => records.receipts.get(run.id) ?? []),
     [runs, records.receipts],
@@ -220,30 +216,21 @@ export function LiveBoard() {
 
       {runs === null ? (
         <p className="ops-muted">Loading the day…</p>
-      ) : groups.length === 0 ? (
-        <div className="ops-empty">
-          <strong>No areas yet</strong>
-          Add an area under “Areas &amp; Trucks” — a truck can’t start a day without one.
-        </div>
       ) : (
         <div className="ops-areas">
-          {groups.map((group) => (
-            <AreaSection
-              key={group.id}
-              group={group}
-              records={records}
-              now={now}
-              selectedRunId={selectedRunId}
-              onSelect={setSelectedRunId}
-            />
-          ))}
+          <RunsSection
+            runs={sortedRuns}
+            records={records}
+            now={now}
+            selectedRunId={selectedRunId}
+            onSelect={setSelectedRunId}
+          />
         </div>
       )}
 
       {exportOpen && (
         <PeriodExportDialog
-          agentGroups={agentGroups}
-          areas={areas}
+          trucks={trucks}
           breadTypes={breadTypes}
           returnedBreadTypes={returnedBreadTypes}
           onClose={() => setExportOpen(false)}
@@ -253,7 +240,7 @@ export function LiveBoard() {
       {selectedRun && (
         <RunPanel
           run={selectedRun}
-          tripNumber={crewTripNumber(selectedRun, runs ?? [])}
+          tripNumber={tripNumber(selectedRun, runs ?? [])}
           receipts={records.receipts.get(selectedRun.id) ?? null}
           entries={records.entries.get(selectedRun.id) ?? null}
           expenses={records.expenses.get(selectedRun.id) ?? null}
@@ -268,95 +255,54 @@ export function LiveBoard() {
 }
 
 // ---------------------------------------------------------------------------
-// Areas
+// Runs
 // ---------------------------------------------------------------------------
 
-type AreaGroup = {
-  id: string;
-  name: string;
-  runs: Run[];
-  /** False for an area a run was filed under that has since been deleted from the Areas list. */
-  known: boolean;
-};
-
 /**
- * Every area, with the day's runs hung off it.
- *
- * Areas with no runs are kept rather than dropped: "Pasig has no truck out" is
- * a fact worth seeing on an operations board, and an area that quietly vanished
- * from the page would be indistinguishable from one nobody set up.
- *
- * A run whose `areaId` is no longer on the Areas list still gets a group of its
- * own, labelled with the name the run captured when it started. Deleting an
- * area does not rewrite history — runs snapshot the name — so the day it
- * belonged to must still be readable.
+ * The day's runs, anything still out first — the page is read top-down while
+ * something is happening, and scrolled only when it isn't — then in the order
+ * they started.
  */
-function groupByArea(areas: NamedRecord[], runs: Run[]): AreaGroup[] {
-  const groups = new Map<string, AreaGroup>();
-
-  for (const area of areas) {
-    groups.set(area.id, { id: area.id, name: area.name, runs: [], known: true });
-  }
-
-  for (const run of runs) {
-    const existing = groups.get(run.areaId);
-    if (existing) {
-      existing.runs.push(run);
-      continue;
-    }
-    const orphan = groups.get(`missing:${run.areaId}`) ?? {
-      id: `missing:${run.areaId}`,
-      name: run.areaName || 'No area',
-      runs: [],
-      known: false,
-    };
-    orphan.runs.push(run);
-    groups.set(orphan.id, orphan);
-  }
-
-  // Busiest first, and anything live above everything else — the page is read
-  // top-down while something is happening, and scrolled only when it isn't.
-  return [...groups.values()].sort((a, b) => {
-    const liveA = a.runs.some((run) => run.status === 'open') ? 1 : 0;
-    const liveB = b.runs.some((run) => run.status === 'open') ? 1 : 0;
+function sortRuns(runs: Run[]): Run[] {
+  return [...runs].sort((a, b) => {
+    const liveA = a.status === 'open' ? 1 : 0;
+    const liveB = b.status === 'open' ? 1 : 0;
     if (liveA !== liveB) return liveB - liveA;
-    if (a.runs.length !== b.runs.length) return b.runs.length - a.runs.length;
-    return a.name.localeCompare(b.name);
+    return a.startedAt - b.startedAt || a.id.localeCompare(b.id);
   });
 }
 
-function AreaSection({
-  group,
+function RunsSection({
+  runs,
   records,
   now,
   selectedRunId,
   onSelect,
 }: {
-  group: AreaGroup;
+  runs: Run[];
   records: RunRecords;
   now: number;
   selectedRunId: string | null;
   onSelect: (runId: string) => void;
 }) {
-  const receipts = group.runs.flatMap((run) => records.receipts.get(run.id) ?? []);
+  const receipts = runs.flatMap((run) => records.receipts.get(run.id) ?? []);
   const totals = totalReceipts(receipts);
-  const openCount = group.runs.filter((run) => run.status === 'open').length;
+  const openCount = runs.filter((run) => run.status === 'open').length;
 
   return (
     <section className={openCount > 0 ? 'ops-area ops-area-live' : 'ops-area'}>
       <div className="ops-area-head">
         <h2 className="ops-area-name">
-          {group.name}
+          Runs
           {openCount > 0 && (
             <span className="ops-pill ops-pill-live">
               <span className="ops-dot" />
               {openCount === 1 ? '1 truck out' : `${openCount} trucks out`}
             </span>
           )}
-          {!group.known && <span className="ops-pill ops-pill-warn">Area deleted</span>}
         </h2>
 
-        {group.runs.length > 0 && (
+        {runs.length > 0 && (
           <div className="ops-area-metrics">
             <span className="ops-area-metric">
               <b>{formatMoney(totals.netTotal)}</b> net
@@ -371,14 +317,14 @@ function AreaSection({
         )}
       </div>
 
-      {group.runs.length === 0 ? (
-        <p className="ops-area-idle">No truck started a day in this area.</p>
+      {runs.length === 0 ? (
+        <p className="ops-area-idle">No truck started a day on this date.</p>
       ) : (
         <div className="ops-runs-scroll">
           <table className="ops-runs">
             <thead>
               <tr>
-                <th>Crew</th>
+                <th>Agents</th>
                 <th>Truck</th>
                 <th>Hours</th>
                 <th className="ops-num">Receipts</th>
@@ -388,7 +334,7 @@ function AreaSection({
               </tr>
             </thead>
             <tbody>
-              {group.runs.map((run) => (
+              {runs.map((run) => (
                 <RunRow
                   key={run.id}
                   run={run}
@@ -422,14 +368,9 @@ function RunRow({
   const receipts = records.receipts.get(run.id) ?? null;
   const totals = totalReceipts(receipts ?? []);
   const problem = runProblem(run);
-  const memberNames = run.agents.map((agent) => agent.name).join(', ');
-  /* The bold line is the crew, and it is never blank: a run recorded before
-     crews existed (or one whose crew was since renamed away) falls back to the
-     people, then to the login that started it. The muted line under it is the
-     membership, shown only when it isn't already saying the same thing as the
-     line above. */
-  const crewName = run.agentGroupName || memberNames || run.createdByEmail || '—';
-  const crewMembers = run.agentGroupName && memberNames ? memberNames : null;
+  /* The bold line is who went out, and it is never blank: a run that recorded
+     nobody falls back to the login that started it. */
+  const agentNames = run.agents.length > 0 ? runAgentNames(run) : run.createdByEmail || '—';
   const spansDays = runSpansDays(run);
   const dayCount = countBusinessDays(run.businessDay, runEndDay(run));
 
@@ -444,18 +385,16 @@ function RunRow({
           onSelect(run.id);
         }
       }}>
-      {/* The crew leads the row, because who went out is what a manager
-          assigned and what they ask about; the people under it, because a crew
-          name alone doesn't say who is actually out. Falls back through the
-          member names to the login, so this line is never blank.
+      {/* Who went out leads the row, because that is what a manager assigned
+          and what they ask about.
 
           The status pill rides in this cell rather than in a column of its
           own: "who is out" and "are they still out" are one fact, and a whole
           column spent on a badge is width the money columns need. It wraps
-          under the crew name when the column is tight. */}
+          under the names when the column is tight. */}
       <td>
         <div className="ops-crew-line">
-          <span className="ops-crew">{crewName}</span>
+          <span className="ops-crew">{agentNames}</span>
           {run.status === 'open' ? (
             <span className="ops-pill ops-pill-live">
               <span className="ops-dot" />
@@ -467,9 +406,8 @@ function RunRow({
             <span className="ops-pill ops-pill-closed">Day ended</span>
           )}
         </div>
-        {crewMembers && <div className="ops-sub">{crewMembers}</div>}
       </td>
-      {/* The truck sits immediately beside the crew: it's what the crew took
+      {/* The truck sits immediately beside the agents: it's what they took
           out, so the two read as one fact rather than two columns. */}
       <td>
         <div className="ops-run-truck">

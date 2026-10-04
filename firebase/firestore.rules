@@ -35,8 +35,8 @@ service cloud.firestore {
     }
 
     // A dashboard account that may CHANGE the catalogs, as opposed to read
-    // them. Everything a manager sets up — bread prices, areas, trucks, crews
-    // and the receipt settings — is editable only by an administrator: the same
+    // them. Everything a manager sets up — bread prices, trucks, agents and the
+    // receipt settings — is editable only by an administrator: the same
     // `admin: true` flag on users/{uid} that gates the Team page, and one only
     // the Admin SDK can ever write (see the /users rules at the foot of this
     // file). Ordinary dashboard staff still read all of it.
@@ -70,49 +70,47 @@ service cloud.firestore {
     //                        && request.auth.uid == userId;
     //   }
 
-    // The reference lists the Inventory setup screen reads: which area a truck
-    // serves, which truck it is, and which crew is aboard. Dashboard-owned —
+    // The reference lists the Inventory setup screen reads: which truck it is,
+    // and which agents are aboard (the driver ticks each one). Dashboard-owned —
     // the manager maintains them, mobile only reads.
     //
     // Trucks and agents used to be typed into each phone and kept in local
     // storage. That made every id device-local, so nothing uploaded could be
-    // grouped by truck at all; moving them here is what gives `truckId`,
-    // `agentGroupId` and `agentIds` a shared meaning across devices.
+    // grouped by truck at all; moving them here is what gives `truckId` and
+    // `agentIds` a shared meaning across devices.
     //
     // Same read/write split as breadTypes: any signed-in account may read,
     // only a dashboard ADMINISTRATOR may write. (The emulator seed script uses
     // the Admin SDK, which bypasses these rules entirely.)
-    match /areas/{areaId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && isDashboardAdmin();
-    }
-
     match /trucks/{truckId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && isDashboardAdmin();
     }
 
-    // A crew. Agents are never picked one at a time any more — a truck is
-    // assigned a whole group, and every agent belongs to exactly one. The
-    // group's id is what a run records alongside the member ids it captured,
-    // so "which crew was out" survives the group later being renamed or having
-    // people moved in and out of it.
-    match /agentGroups/{groupId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && isDashboardAdmin();
-    }
-
-    // One person, and the `groupId` of the crew they ride with. Nothing
-    // server-side enforces that the group exists — a rule that did would need
-    // a get() per write and would still lose the race against a group being
-    // deleted. The dashboard is the only writer and deletes a group's agents
-    // along with it (see apps/web/src/lib/agent-groups.ts).
+    // One person. An agent doc written while crews existed may still carry a
+    // `groupId`; nothing reads it.
     match /agents/{agentId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && isDashboardAdmin();
     }
 
-    // A run: one truck, one area, one crew, one business day — and,
+    // LEGACY — areas and crews (agentGroups) were removed on the owner's call.
+    // Nothing current reads or writes them. Reads stay open only so a phone
+    // still running an older build can finish its setup until it is updated;
+    // writes are refused so the lists can't drift further. Once every phone is
+    // on the new build these two blocks can be deleted (the default-deny above
+    // then covers them).
+    match /areas/{areaId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /agentGroups/{groupId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // A run: one truck, the agents aboard it, one trip out — and,
     // in its subcollections, every ledger entry and finalized receipt from
     // that day. This is the grouping the whole sync design is built on; see
     // docs/sync-design.md.

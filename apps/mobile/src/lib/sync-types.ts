@@ -86,20 +86,13 @@ export type RunManifest = {
 export type RunStamp = {
   runId: string;
   businessDay: string;
-  areaId: string;
   truckId: string;
   /**
-   * The crew assigned to the run. A truck is assigned a whole group, never a
-   * hand-picked set of people, so this is what "who was out" is filed under.
-   */
-  agentGroupId: string;
-  /**
-   * Who was in that crew **at the moment the run opened**.
+   * Who was on the truck — the agents the driver ticked on the setup screen,
+   * one by one, from the list the dashboard keeps.
    *
-   * Kept alongside the group id rather than resolved from it later, because
-   * the two answer different questions and only one of them stays true: a
-   * person moved to another crew next week must not retroactively change who
-   * was on the truck today.
+   * Captured when the run opens and never re-resolved: an agent renamed or
+   * removed next week must not change who was on the truck today.
    */
   agentIds: string[];
   createdByUid: string;
@@ -107,10 +100,7 @@ export type RunStamp = {
 
 /** The run header, plus the display names captured when the run started. */
 export type RunContext = RunStamp & {
-  areaName: string;
   truckName: string;
-  /** The crew's name as it read when the run started — see agentGroupId. */
-  agentGroupName: string;
   agents: { id: string; name: string }[];
   startedAt: number;
   /**
@@ -145,11 +135,11 @@ export type RunContext = RunStamp & {
  * residual risk is theoretical rather than clerical: it needs two accounts
  * differing only in characters no address actually contains.
  *
- * The crew segment is a typed *name*, so it does flatten — a space and a `/`
- * both become `-`, which makes "Team A" and "Team-A" one segment. That is
- * covered rather than ignored: `finalizeSetup` counts a day's runs through this
- * same function, so two names that flatten together are numbered as one crew
- * and take `_2` instead of colliding. Exported for exactly that.
+ * The agents segment is made of typed *names*, so it does flatten — a space and
+ * a `/` both become `-`, which makes "Juan Cruz" and "Juan-Cruz" one segment.
+ * That is covered rather than ignored: `finalizeSetup` counts a day's runs
+ * through the same segment, so two lists that flatten together are numbered as
+ * one and take `_2` instead of colliding.
  */
 export function runIdSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9._@+%-]/g, '-') || 'unknown';
@@ -162,43 +152,35 @@ function compose(subject: string, account: string, at: number, sequence: number)
 }
 
 /**
+ * The segment of a run id that says who was on the truck: each ticked agent's
+ * name, flattened by `runIdSegment`, joined with `+` — `Juan+Pedro-Santos`.
+ *
+ * The agents arrive in the dashboard's own order (the setup screen keeps them
+ * that way), so the same people always make the same segment however the
+ * driver happened to tick them. `+` is legal in a document id and never made
+ * by `runIdSegment` out of a space, so where one name ends stays readable.
+ */
+export function agentsRunIdSegment(agentNames: string[]): string {
+  return agentNames.map(runIdSegment).join('+') || 'unknown';
+}
+
+/**
  * The id of the run a phone is on for a given moment.
  *
- * Composed rather than generated — `2026-08-15_Alpha-Crew_juan@bakery.ph` — so
- * it can be read: a run id says on its face which day, which crew and which
- * account it belongs to, which is what makes a stray document traceable without
- * a lookup table.
+ * Composed rather than generated — `2026-08-15_Juan+Pedro_juan@bakery.ph` — so
+ * it can be read: a run id says on its face which day, who was on the truck
+ * and which account it belongs to, which is what makes a stray document
+ * traceable without a lookup table.
  *
- * **The crew segment is the crew's name, not its document id.** That is the
- * whole point of composing the id at all: `grp_9f2a1c` is only readable next to
- * the crew list it came from, which is the lookup this is meant to avoid. The
- * name is captured at the moment the run opens, so renaming a crew afterwards
- * doesn't move an open run — the id is pinned into the setup and never
- * recomposed — and the crew's real id is still stamped on the run and on every
- * child document as `agentGroupId`, which is what the dashboard groups by.
+ * **The middle segment is the ticked agents' names, not their document ids**
+ * (see `agentsRunIdSegment`), for the same reason: an id is only readable next
+ * to the list it came from. The names are captured when the run opens and the
+ * id is pinned into the setup and never recomposed, so renaming an agent
+ * afterwards doesn't move an open run. The real ids are still stamped on the
+ * run and on every child document as `agentIds`.
  *
- * A name is not unique the way an id is, and that is handled by `sequence`
- * rather than avoided: two different crews sharing a name, taken out by one
- * account on one day, compute the same base id, and the second gets `_2` from
- * the same machinery a crew's own second trip uses.
- *
- * It used to be composed for a second reason — so a phone reinstalled mid-day
- * could fill the wizard in again and recompute its way back onto the same run
- * document. That no longer happens, and shouldn't: a reinstall takes the local
- * databases with it, so the truck is counted from scratch and the rejoined run
- * would have closed with a manifest describing only the second half of its own
- * day. `findFreeRunSequence` in lib/sync.ts moves such a phone onto the next
- * free number instead, leaving the morning's run open and unmanifested for the
- * server to see.
- *
- * **The subject is the crew, not the truck.** A run is a crew's trip out: the
- * crew is what the server compares day to day (see the dashboard's "net takings
- * by crew"), and it is the part of the setup a driver is least likely to get
- * wrong, because the picker makes them open the crew and read its members
- * before it will confirm. The truck can change under a crew mid-day — a
- * breakdown, a swap at the depot — and keying the id to it would file the same
- * trip under two names. `truckId` is still stamped on the run and on every
- * child document, so nothing about grouping a day by truck is lost.
+ * (Runs opened while crews existed were keyed on the crew's name instead.
+ * Their ids are pinned, so they keep them; nothing recomposes an old id.)
  *
  * The day comes from `businessDayKey`, so it is a *Manila* day. Deriving it
  * from the device's own timezone would put a 6:30 AM run into the previous
@@ -206,19 +188,16 @@ function compose(subject: string, account: string, at: number, sequence: number)
  *
  * Two suffixes, each preventing a different collision:
  *
- * - **`account` is what keeps two phones off each other's run.** Two agents can
- *   pick the same crew on the same day — one of them by mistake — and without
- *   this both compute the same id and share one document: the second phone's
- *   header overwrites the first's, and whichever ends the day last overwrites
- *   the other's manifest. Keyed on the login rather than on the device so a
- *   reinstall rejoins the same run; a run is one *account's* trip. Optional
- *   only so a run opened before this existed still recomputes its old id.
- * - **`sequence` is what allows the same account to take the same crew out
- *   twice in one day.** The first run carries no suffix, so the common case
- *   stays short; a second appends `_2`, a third `_3`. The counter is per
- *   business day and resets with it, and it counts the *crew's* runs, so a crew
- *   that changes trucks between trips still numbers 1 then 2 rather than
- *   starting again at 1 under the new truck.
+ * - **`account` is what keeps two phones off each other's run.** Two phones can
+ *   tick the same people on the same day — one of them by mistake — and
+ *   without this both compute the same id and share one document: the second
+ *   phone's header overwrites the first's, and whichever ends the day last
+ *   overwrites the other's manifest. Keyed on the login rather than on the
+ *   device so a reinstall rejoins the same run; a run is one *account's* trip.
+ * - **`sequence` is what allows the same account to take the same people out
+ *   twice in one day** (or two agents sharing a name). The first run carries
+ *   no suffix; a second appends `_2`, a third `_3`. The counter is per
+ *   business day and resets with it.
  *
  *   Where the number comes from is deliberately two-sided — `finalizeSetup` in
  *   context/inventory.tsx counts this phone's own run log, then
@@ -230,22 +209,24 @@ function compose(subject: string, account: string, at: number, sequence: number)
  *   the collision this suffix exists to prevent.
  */
 export function composeRunId(
-  agentGroupName: string,
+  agentNames: string[],
   account: string,
   at: number = Date.now(),
   sequence: number = 1
 ): string {
-  return compose(agentGroupName, account, at, sequence);
+  // Already a segment, so it goes through `compose` as-is: runIdSegment leaves
+  // `+` and `-` alone, so flattening it a second time changes nothing.
+  return compose(agentsRunIdSegment(agentNames), account, at, sequence);
 }
 
 /**
- * The id a run *used* to get, when the truck rather than the crew was the
- * subject.
+ * The id a run got before ids were composed from *names* — keyed on the
+ * truck's document id.
  *
  * Only ever called for a run that was already open when this build was
  * installed: its setup carries no pinned `runId`, and every ledger entry and
- * receipt already written under it is stamped with the truck-keyed id. Deriving
- * a crew-keyed id for that run instead would leave those rows pointing at a run
+ * receipt already written under it is stamped with the truck-id-keyed id.
+ * Deriving a name-keyed id for that run instead would leave those rows pointing at a run
  * the phone no longer believes in — un-uploadable, and silently so. A run
  * opened from now on pins its id at setup, so nothing new reaches this.
  */

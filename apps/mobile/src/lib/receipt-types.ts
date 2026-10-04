@@ -73,16 +73,16 @@ export type ReceiptSummary = {
    */
   runId: string | null;
   /**
-   * The crew that was out when this receipt was finalized, as their name read
-   * at that moment — the same snapshot rule `customerName` and an item's `name`
-   * follow. Renaming a crew next week must not rewrite a receipt the customer
-   * is holding a printed copy of.
+   * Who was on the truck when this receipt was finalized — the run's agents'
+   * names, comma-separated, as they read at that moment. The same snapshot rule
+   * `customerName` and an item's `name` follow: renaming an agent next week
+   * must not rewrite a receipt the customer is holding a printed copy of.
    *
-   * Null on a draft (no crew is settled until a receipt is filed under a run)
+   * Null on a draft (nobody is settled until a receipt is filed under a run)
    * and on every receipt finalized before this column existed, which is why
-   * every reader treats it as optional rather than expecting a name.
+   * every reader treats it as optional rather than expecting names.
    */
-  agentGroupName: string | null;
+  agentNames: string | null;
   /**
    * When the receipt was voided, or null while it stands.
    *

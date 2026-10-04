@@ -68,10 +68,9 @@ function getDb(): Promise<SQLiteDatabase> {
       for (const column of ['cheque_total', 'partial_total', 'partial_paid_total', 'credit_total']) {
         if (!knownColumns.has(column)) await db.execAsync(`ALTER TABLE run_history ADD COLUMN ${column} REAL NOT NULL DEFAULT 0`);
       }
-      // Agents used to be picked one at a time; they're now assigned as a crew.
-      // A run closed before that has no crew to name, and defaults to '' —
-      // which the history screen renders as "No crew recorded" rather than
-      // inventing one.
+      // Added while agents were assigned as crews. Crews have since been
+      // removed and nothing reads the column; it is still added so older
+      // installs end up with the same table, and written as ''.
       if (!knownColumns.has('agent_group_name')) {
         await db.execAsync(`ALTER TABLE run_history ADD COLUMN agent_group_name TEXT NOT NULL DEFAULT ''`);
       }
@@ -127,9 +126,7 @@ function rowToSummary(row: RunHistoryRow): RunHistorySummary {
   return {
     runId: row.run_id,
     businessDay: row.business_day,
-    areaName: row.area_name,
     truckName: row.truck_name,
-    agentGroupName: row.agent_group_name ?? '',
     agentNames: JSON.parse(row.agent_names) as string[],
     startedAt: row.started_at,
     closedAt: row.closed_at,
@@ -207,9 +204,11 @@ export async function saveRunHistory(entry: RunHistoryEntry): Promise<void> {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     entry.runId,
     entry.businessDay,
-    entry.areaName,
+    // Area and crew no longer exist; both columns are NOT NULL in older
+    // installs' tables, so they are written empty rather than dropped.
+    '',
     entry.truckName,
-    entry.agentGroupName,
+    '',
     JSON.stringify(entry.agentNames),
     entry.startedAt,
     entry.closedAt,

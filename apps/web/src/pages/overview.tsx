@@ -9,7 +9,7 @@ import '@/pages/overview.css';
 /**
  * The dashboard's operations surface — three views of the same business.
  *
- * - **Live** — today, as it happens: which trucks are out, in which areas, what
+ * - **Live** — today, as it happens: which trucks are out, who is on them, what
  *   they have taken so far, and whether a run that ended is missing records.
  * - **Trends** — the same figures over weeks, from the manifests each phone
  *   uploads when its day is closed.
@@ -17,7 +17,7 @@ import '@/pages/overview.css';
  *   every truck and every day.
  *
  * Tabs rather than three sidebar entries. The sidebar lists the things a
- * manager goes to *set up* — bread types, areas, trucks, settings — and these
+ * manager goes to *set up* — bread types, trucks, agents, settings — and these
  * three are one thing looked at from three distances. Splitting them into the
  * sidebar would put "check today's takings" and "add a truck" at the same level
  * of the app, which they are not. If Stores ever grows into somewhere people

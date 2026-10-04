@@ -87,42 +87,39 @@ self-assigned, and no role can change once set.
   business's own administrator on the dashboard's **Team page** — documented in
   `apps/web/CLAUDE.md`, along with the `admin: true` flag that gates it. That
   same `admin: true` flag also decides who may **change** the dashboard's
-  catalogs — bread types, areas, trucks, crews and the receipt settings. Every
+  catalogs — bread types, trucks, agents and the receipt settings. Every
   dashboard account reads them; only an administrator edits them, in the browser
   and in `firestore.rules` alike (`isDashboardAdmin()`).
 
-## Agents are crews, not individuals
+## Agents are picked one by one — no crews, no areas
 
-**A truck is assigned a whole crew.** `agentGroups/{groupId}` is a crew and
-`agents/{agentId}` carries the `groupId` of the one it belongs to — and **every
-agent belongs to exactly one**. An agent outside a crew is unreachable: nothing
-on a phone can put them on a truck. Both the group name and each agent's name
-are editable on the dashboard.
+**The driver ticks each agent who is on the truck**, from the flat `agents`
+list the dashboard keeps. Crews (`agentGroups`) and areas (`areas`) were removed
+on the owner's call (October 2026), from the phone, the dashboard and the store
+records alike. Their Firestore collections are left in place, read-only by rule,
+only so a phone still on an older build can finish its setup; nothing current
+reads them, and they can be deleted once every phone is updated.
 
-- **Dashboard** — `apps/web/src/components/agent-groups-section.tsx`, its own
-  section on the reference-lists page rather than a third `NamedListSection`,
-  because it edits *two* collections and the invariant only holds if they are
-  written as one action: deleting a crew deletes its people
-  (`deleteAgentGroup` re-reads the members server-side so someone added from
-  another tab goes with them), adding a person means naming their crew, and
-  **Review refuses to save a crew with nobody in it**. Same edit-mode /
-  review-then-confirm / drag-to-reorder workflow as every other list. New crews
-  are created *first and awaited* in `handleConfirm`, because a new agent's
-  write has to name a crew that already has a real id — placeholder ids are
-  swapped through `idMap`. Moving someone between crews is the **Crew dropdown**
-  on their row, not drag-and-drop; dragging only reorders within a crew.
-- **Mobile** — `components/agent-group-field.tsx` replaces the old multi-select
-  of individual agents on the setup screen. Tap a crew and it expands, listing
-  its people indented underneath (one open at a time); **Confirm only appears
-  once a crew is open**, because expanding is how the driver checks they picked
-  the right crew. A crew with nobody in it can be opened but not confirmed.
-- **One catalog, two reads.** `fetchAgentGroups` in `context/inventory.tsx`
-  fetches both collections and caches the *joined* result under one key, so the
-  saved copy can't fall out of step with itself. An agent whose `groupId` names
-  no crew is dropped — it could never be selected anyway.
-- **The run records both the crew and its membership.** `agentGroupId` /
-  `agentGroupName` say what was assigned; `agentIds` / `agents` say who that
-  crew held **at the moment the run opened**. Resolving the crew to a membership
-  at read time would let somebody moved between crews next week rewrite who was
-  on the truck today. `agentGroupId` is on the `RunStamp`, so every child
-  document repeats it like `areaId` and `truckId`.
+- **Dashboard** — Agents is a plain `NamedListSection` on the reference-lists
+  page ("Trucks & Agents"), beside Trucks. The page's sections are Trucks and
+  Agents only.
+- **Mobile** — `components/agents-field.tsx` on the setup screen: a sheet of
+  checkboxes, ticks are a draft until **Confirm**, and Confirm needs at least
+  one agent. The setup screen asks for **Truck** and **Agents** — nothing else.
+- **The run records who was aboard.** `agentIds` / `agents` (ids and names) are
+  captured **at the moment the run opens**, in the dashboard list's order, and
+  never re-resolved. `agentIds` is on the `RunStamp`, so every child document
+  repeats it like `truckId`.
+- **The run id is keyed on the agents' names** —
+  `2026-10-03_Juan-Dela-Cruz+Maria-Santos_juan@bakery.ph` (see
+  `agentsRunIdSegment` / `composeRunId` in `apps/mobile/src/lib/sync-types.ts`).
+- **Stores carry no area and no crew any more**, and neither store list on the
+  phone (Customers tab, receipt store picker) has a filter. Old store documents
+  still hold `areaId` / `agentGroupId` in Firestore; nothing reads them.
+- **Dashboard reports cut by truck** where they used to cut by crew and area —
+  the Trends tab's "Net takings by truck", its truck filters, and the period
+  workbook's "By truck" section.
+- Runs and receipts written before the change still carry `agentGroupId`,
+  `agentGroupName`, `areaId` and `areaName`. The dashboard ignores them, with
+  one exception: a receipt's printed crew name (`agentGroupName`) is read as
+  the fallback for `agentNames`, because that is what the customer's paper says.

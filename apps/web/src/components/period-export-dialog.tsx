@@ -13,7 +13,6 @@ import {
   startOfWeek,
   WeekOptionLabels,
 } from '@/lib/day-ranges';
-import type { AgentGroup } from '@/lib/agent-groups';
 import type { NamedRecord } from '@/lib/named-records';
 import {
   buildPeriodSummary,
@@ -79,15 +78,13 @@ const MonthOptionCount = 24;
 const YearOptionCount = 6;
 
 export function PeriodExportDialog({
-  agentGroups,
-  areas,
+  trucks,
   breadTypes,
   returnedBreadTypes,
   onClose,
 }: {
-  /** The crews, for ordering the workbook's crew rows the way the dashboard lists them. */
-  agentGroups: AgentGroup[];
-  areas: NamedRecord[];
+  /** The trucks, for ordering the workbook's truck rows the way the dashboard lists them. */
+  trucks: NamedRecord[];
   breadTypes: BreadType[];
   returnedBreadTypes: ReturnedBreadType[];
   onClose: () => void;
@@ -218,8 +215,7 @@ export function PeriodExportDialog({
       const summary = await buildPeriodSummary({
         from: range.from,
         to: range.to,
-        agentGroups,
-        areas,
+        trucks,
         breadTypes,
         returnedBreadTypes,
         onProgress: setProgress,
@@ -253,7 +249,7 @@ export function PeriodExportDialog({
         </div>
 
         <p className="ops-dialog-note">
-          One Excel file for the days you pick: the money day by day, every crew and area side by side, what each bread
+          One Excel file for the days you pick: the money day by day, every truck side by side, what each bread
           type moved and earned, which stores bought and which still owe, what came in and what was spent.
         </p>
 

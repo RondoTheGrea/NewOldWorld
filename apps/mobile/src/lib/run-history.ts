@@ -75,9 +75,7 @@ export async function recordRunHistory(
   const entry: RunHistoryEntry = {
     runId: run.runId,
     businessDay: run.businessDay,
-    areaName: run.areaName,
     truckName: run.truckName,
-    agentGroupName: run.agentGroupName,
     agentNames: run.agents.map((agent) => agent.name),
     startedAt: run.startedAt,
     closedAt,

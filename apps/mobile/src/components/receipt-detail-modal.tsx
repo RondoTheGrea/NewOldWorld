@@ -390,18 +390,19 @@ function ReceiptDetailBody({
                   )}
                 </>
               )}
-              {/* Under the payment block, on paper and here alike: the crew
-                  that was out when this receipt was finalized — the name copied
-                  onto the row at that moment, not the crew out now. Left off
-                  entirely when the row has none, which is every receipt
-                  finalized before it was recorded; a "Crew —" row would read as
-                  a receipt nobody delivered. */}
-              {!!summary.agentGroupName && (
+              {/* Under the payment block, on paper and here alike: who was on
+                  the truck when this receipt was finalized — the names copied
+                  onto the row at that moment. Left off entirely when the row has
+                  none, which is every receipt finalized before it was recorded;
+                  an "Agents —" row would read as a receipt nobody delivered. */}
+              {!!summary.agentNames && (
                 <View style={styles.totalRow}>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Crew
+                    Agents
                   </ThemedText>
-                  <ThemedText type="smallBold">{summary.agentGroupName}</ThemedText>
+                  <ThemedText type="smallBold" style={styles.agentNames}>
+                    {summary.agentNames}
+                  </ThemedText>
                 </View>
               )}
             </View>
@@ -742,6 +743,12 @@ const styles = StyleSheet.create({
   loading: {
     paddingVertical: Spacing.four,
     alignItems: 'center',
+  },
+  // Several names can outgrow the row, so they wrap on the right rather than
+  // pushing the label off screen.
+  agentNames: {
+    flexShrink: 1,
+    textAlign: 'right',
   },
   scrollArea: {
     flexShrink: 1,

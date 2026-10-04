@@ -101,8 +101,8 @@ export class OpenDraftError extends Error {
  * "End the Day" refusing because the open run's details couldn't be assembled.
  *
  * A run is open — the setup says so, and `runId` is pinned on it — but nothing
- * could produce the `RunContext` that goes with it, so there is no truck, area,
- * crew or start time to stamp the closing write with. Closing is *impossible*
+ * could produce the `RunContext` that goes with it, so there is no truck,
+ * agents or start time to stamp the closing write with. Closing is *impossible*
  * in that state rather than merely unwise: `closeRun` and `uploadRunHeader`
  * both take the stamp, and the manifest is counted per run.
  *
@@ -804,7 +804,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
 
     // The header before the closing write, if it never made it up — a run whose
     // only document was the close would have a manifest and a status but no
-    // area, truck or agents. Not swallowed like the drain's attempt: this is
+    // truck or agents. Not swallowed like the drain's attempt: this is
     // the last chance to send it, so a failure has to reach the retry prompt.
     if (!inputsRef.current.headerSynced) {
       // The longer closing budget, like the manifest write below it: this is
@@ -870,7 +870,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
  * true, unhelpful, and identical for every receipt of every trip. A driver
  * phones the server about "the truck this morning", so the answer has to be
  * findable from the log by the same handles the server uses: the day, the
- * truck, the crew and the trip number, plus the run id to look it up with.
+ * truck, who was on it and the trip number, plus the run id to look it up with.
  *
  * Names are preferred over ids where the run captured both — a log read by a
  * person should say "Truck 3", not a document id — with the id as the fallback
@@ -884,7 +884,7 @@ function runDetails(run: RunContext | null): Record<string, unknown> {
     businessDay: run.businessDay,
     trip: run.sequence,
     truck: run.truckName || run.truckId,
-    crew: run.agentGroupName || run.agentGroupId,
+    agents: run.agents.map((agent) => agent.name).join(', ') || run.agentIds.join(', '),
     account: run.createdByEmail || run.createdByUid,
   };
 }

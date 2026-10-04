@@ -8,84 +8,76 @@ import { businessDayKey } from '@/lib/business-day';
 import { logError } from '@/lib/errors';
 import { db } from '@/lib/firebase';
 import { findFreeRunSequence } from '@/lib/sync';
-import { composeLegacyTruckRunId, composeRunId, runIdSegment, type RunContext } from '@/lib/sync-types';
+import { agentsRunIdSegment, composeLegacyTruckRunId, composeRunId, type RunContext } from '@/lib/sync-types';
 
-// Areas, Trucks and Agents are all **dashboard-owned** reference data: the
+// Trucks and Agents are both **dashboard-owned** reference data: the
 // manager maintains them on the web dashboard, mobile only ever reads them
-// (see firestore.rules). They used to be three different things — areas came
+// (see firestore.rules). They used to be different things — areas came
 // from Firestore with a bespoke fetch, while trucks and employees were typed
 // into each phone and kept in AsyncStorage.
 //
 // That local list wasn't just untidy, it made uploads meaningless: two phones
 // typing "Truck 3" minted two unrelated local ids, so no cloud record could
-// ever be grouped by truck. Now all three run on the same shared catalog hook
+// ever be grouped by truck. Now both run on the same shared catalog hook
 // as bread types, and their ids are the dashboard's ids — stable across every
 // device.
 //
-// Agents are the one that isn't a flat list: they are organised into **crews**,
-// and a truck is assigned a whole crew rather than a hand-picked set of people.
-// Two Firestore collections back that (`agentGroups` and `agents`, joined on
-// `groupId`), but one cached catalog holds the joined result — the phone never
-// has a use for half of it, and one cache entry means the saved copy can't fall
-// out of step with itself.
+// Agents are a flat list, and the driver ticks each one who is on the truck.
+// (They used to be organised into crews and assigned as a whole; crews were
+// removed on the owner's call and the `agentGroups` collection is no longer
+// read.)
 const SETUP_KEY = 'inventory.setup.v1';
 const RUN_LOG_KEY = 'inventory.runlog.v1';
-const AREAS_CACHE_KEY = 'inventory.areas.cache.v1';
 const TRUCKS_CACHE_KEY = 'inventory.trucks.cache.v1';
-// v2: the shape changed from a flat agent list to crews holding members. A new
-// key rather than a migration — the old copy is one dropdown's worth of names
-// that the next open re-downloads.
-const AGENT_GROUPS_CACHE_KEY = 'inventory.agentGroups.cache.v2';
+// v3: back to a flat agent list after crews were removed (v2 held crews with
+// their members). A new key rather than a migration — the old copy is one
+// picker's worth of names that the next open re-downloads.
+const AGENTS_CACHE_KEY = 'inventory.agents.cache.v3';
 
 /** A named record from a dashboard-owned collection. */
 export type NamedRecord = { id: string; name: string };
 
-export type Area = NamedRecord;
 export type Truck = NamedRecord;
 export type Agent = NamedRecord;
 
-/** A crew, and the people in it — the unit a truck is actually assigned. */
-export type AgentGroup = NamedRecord & { agents: Agent[] };
-
 /**
- * What this phone is doing right now: which area it serves, which truck it is,
- * and which crew is aboard — plus the bookkeeping for the **run** those three
+ * What this phone is doing right now: which truck it is and which agents are
+ * aboard — plus the bookkeeping for the **run** those
  * identify (see docs/sync-design.md).
  *
- * The run's id is `composeRunId(agentGroupName, runAccount, runStartedAt,
+ * The run's id is `composeRunId(agentNames, runAccount, runStartedAt,
  * runSequence)` — **composed once when setup is finished and then pinned** in
  * `runId`. Pinned rather than recomputed on every read so the id can never
  * shift under a run that is already writing rows stamped with it; that matters
- * twice over now that the crew segment is the crew's *name*, since renaming a
- * crew on the dashboard would otherwise re-point an open run at a document that
+ * twice over because the middle segment is made of agents' *names*, so renaming
+ * one on the dashboard would otherwise re-point an open run at a document that
  * doesn't exist. `runSequence` is also settled partly by asking Firestore (see
  * finalizeSetup), and an answer there is no reason to re-ask for.
  *
  * Nothing here is read fresh. `runStartedAt` keeps a run that crosses Manila
  * midnight as one run rather than silently splitting it in two, `runAccount`
  * keeps it pointed at one document even if someone logs out and back in as
- * somebody else, and `agentGroupId` is the crew whose trip this is.
+ * somebody else, and `agentIds` are the people whose trip this is.
  */
 export type InventorySetup = {
-  areaId: string | null;
   truckId: string | null;
   /**
-   * The crew aboard. One id, not a list of people: a truck is assigned a whole
-   * crew, and who is in that crew is the dashboard's business, not the driver's.
-   * The member ids are resolved once, at finalizeSetup, and pinned into the run.
+   * The agents aboard, each ticked by the driver from the dashboard's list.
+   * Their names are resolved once, at finalizeSetup, and pinned into the run.
    */
-  agentGroupId: string | null;
+  agentIds: string[];
   complete: boolean;
   /** When setup was finished. The run's business day is taken from this. */
   runStartedAt: number | null;
   /**
-   * Which run of the day this is for this crew: 1 for the first, 2 for a crew
-   * that went back out, and so on. Only a value above 1 shows up in the run id.
+   * Which run of the day this is for these agents: 1 for the first, 2 for the
+   * same people going back out, and so on. Only a value above 1 shows up in the
+   * run id.
    *
-   * Counted per crew rather than per truck, to match what the id is keyed on —
-   * a crew that comes back and takes a different truck out is still on its
-   * second trip, and numbering it 1 again would compute the morning's id and
-   * merge the two trips into one document.
+   * Counted per agents segment rather than per truck, to match what the id is
+   * keyed on — the same people coming back and taking a different truck out are
+   * on their second trip, and numbering it 1 again would compute the morning's
+   * id and merge the two trips into one document.
    */
   runSequence: number;
   /**
@@ -114,9 +106,8 @@ export type InventorySetup = {
 };
 
 const EMPTY_SETUP: InventorySetup = {
-  areaId: null,
   truckId: null,
-  agentGroupId: null,
+  agentIds: [],
   complete: false,
   runStartedAt: null,
   runSequence: 1,
@@ -129,7 +120,7 @@ const EMPTY_SETUP: InventorySetup = {
  * How many finished runs are remembered. Two jobs, both of which need the
  * *past* runs and not just the current one:
  *
- * 1. **Numbering.** A second run by the same account and crew on the same day
+ * 1. **Numbering.** A second run by the same account and agents on the same day
  *    has to know it is the second, or it computes the first run's id and merges
  *    into it.
  * 2. **Stamping late uploads.** A queued row must upload into the run it was
@@ -144,7 +135,7 @@ const EMPTY_SETUP: InventorySetup = {
  *    re-sends are filed under that receipt's own run — a run that has aged out
  *    of this log turns the photo `'legacy'`, never to upload.
  *
- * 200 because of that last case: a crew goes out once or twice a day, so this
+ * 200 because of that last case: a truck goes out once or twice a day, so this
  * is months of history, enough for a photo that turns up long after the sale.
  * It is capped only because the list is rewritten to disk whole — each entry is
  * well under a kilobyte, so 200 is a few hundred KB at most, read once at launch
@@ -173,25 +164,19 @@ export class NoOpenRunError extends Error {
 }
 
 type InventoryContextValue = {
-  // Each of the three lists comes with the two things its picker needs: a
+  // Each of the two lists comes with the two things its picker needs: a
   // `loading` flag that is only true while there is *nothing* to show, and an
   // error that is only set when the fetch failed with no saved copy to fall
   // back on. `ensure*Loaded` is what the picker calls when it opens.
-  areas: Area[];
-  areasLoading: boolean;
-  areasError: string | null;
-  ensureAreasLoaded: () => void;
-
   trucks: Truck[];
   trucksLoading: boolean;
   trucksError: string | null;
   ensureTrucksLoaded: () => void;
 
-  /** Crews with their members already joined in — see AgentGroup. */
-  agentGroups: AgentGroup[];
-  agentGroupsLoading: boolean;
-  agentGroupsError: string | null;
-  ensureAgentGroupsLoaded: () => void;
+  agents: Agent[];
+  agentsLoading: boolean;
+  agentsError: string | null;
+  ensureAgentsLoaded: () => void;
 
   setup: InventorySetup;
   /** True until the persisted setup has been read from disk on app start. */
@@ -200,7 +185,7 @@ type InventoryContextValue = {
   /**
    * Marks setup complete and opens the run — this is the moment a run begins.
    *
-   * Resolves false if it couldn't (no area, no truck, or no signed-in user).
+   * Resolves false if it couldn't (no truck, no agents, or no signed-in user).
    * A caller must not ignore that: this screen is a full-screen progress view,
    * and a silent no-op leaves it spinning with no way forward.
    *
@@ -302,50 +287,11 @@ function fetchNamed(collectionName: string) {
   };
 }
 
-/**
- * Reads the crews and their members, and joins them on `groupId`.
- *
- * Two reads rather than one, because they are two collections — but they are
- * fetched together and cached as one value, since a crew list without its
- * people is not something any screen can use.
- *
- * An agent whose `groupId` names no existing crew is **dropped**. That is not a
- * silent loss of data: a truck is assigned a whole crew, so a person outside
- * one is unreachable from this app whatever it does with them, and showing them
- * in a bucket the driver can't select would be a puzzle rather than a warning.
- * The dashboard is where that gets fixed, and it says so there.
- */
-async function fetchAgentGroups(): Promise<AgentGroup[]> {
-  const [groupSnapshot, agentSnapshot] = await Promise.all([
-    getDocs(query(collection(db, 'agentGroups'), orderBy('name'))),
-    getDocs(query(collection(db, 'agents'), orderBy('name'))),
-  ]);
-
-  const groupDatas = groupSnapshot.docs.map((d) => d.data());
-  const agentDatas = agentSnapshot.docs.map((d) => d.data());
-
-  const membersByGroup = new Map<string, OrderedRecord[]>();
-  agentSnapshot.docs.forEach((d, index) => {
-    const groupId = (agentDatas[index].groupId as string) ?? '';
-    if (!groupId) return;
-    const members = membersByGroup.get(groupId) ?? [];
-    members.push(readOrdered(d.id, agentDatas[index]));
-    membersByGroup.set(groupId, members);
-  });
-
-  const groups = groupSnapshot.docs.map((d, index) => ({
-    ...readOrdered(d.id, groupDatas[index]),
-    agents: withoutOrder(sortByOrder(membersByGroup.get(d.id) ?? [])),
-  }));
-
-  return withoutOrder(sortByOrder(groups));
-}
-
 // Built once at module scope rather than per render. useCachedCatalog reads
 // `fetch` through a ref so it doesn't require a stable identity, but there's no
 // reason to rebuild these closures on every render either.
-const fetchAreas = fetchNamed('areas');
 const fetchTrucks = fetchNamed('trucks');
+const fetchAgents = fetchNamed('agents');
 
 /** Fire-and-forget disk write. A failure costs the value on next launch, not now, so it's logged rather than surfaced. */
 function persist(key: string, value: unknown, details?: Record<string, unknown>): void {
@@ -368,12 +314,12 @@ function persist(key: string, value: unknown, details?: Record<string, unknown>)
  * day's work made permanently un-uploadable by a failed *read*.
  *
  * The setup already pins everything that identifies the run: the id, when it
- * started, its number, and the three ids that were picked. What it doesn't hold
- * are the display names and the crew membership, so those are resolved the same
- * way `finalizeSetup` resolved them — from the catalogs, falling back to empty,
- * exactly as it does. That is a real loss and worth being clear about: a crew
- * list that has since changed gives a *current* membership where the log held
- * the one captured when the run opened. It is the lesser wrong. Nothing the
+ * started, its number, and the ids that were picked. What it doesn't hold are
+ * the display names, so those are resolved the same way `finalizeSetup`
+ * resolved them — from the catalogs, falling back to empty. That is a real loss
+ * and worth being clear about: an agent renamed since gives the *current* name
+ * where the log held the one captured when the run opened. It is the lesser
+ * wrong. Nothing the
  * server needs to file the day is missing — the ids, the day and the trip
  * number all come from the setup untouched — and the alternative is not a more
  * accurate run but no run at all.
@@ -389,12 +335,9 @@ function rebuildRunFromSetup(
   startedAt: number,
   uid: string,
   email: string,
-  areas: Area[],
   trucks: Truck[],
-  agentGroups: AgentGroup[]
+  agents: Agent[]
 ): RunRecord {
-  const crew = agentGroups.find((group) => group.id === setup.agentGroupId);
-  const crewMembers = crew?.agents ?? [];
 
   return {
     runId,
@@ -402,14 +345,10 @@ function rebuildRunFromSetup(
     // From the pinned start time, never from "now" — the whole point of
     // pinning it is that a run keeps its own business day.
     businessDay: businessDayKey(startedAt),
-    areaId: setup.areaId ?? '',
-    areaName: areas.find((area) => area.id === setup.areaId)?.name ?? '',
     truckId: setup.truckId ?? '',
     truckName: trucks.find((truck) => truck.id === setup.truckId)?.name ?? '',
-    agentGroupId: setup.agentGroupId ?? '',
-    agentGroupName: crew?.name ?? '',
-    agentIds: crewMembers.map((agent) => agent.id),
-    agents: crewMembers.map((agent) => ({ id: agent.id, name: agent.name })),
+    agentIds: setup.agentIds,
+    agents: setup.agentIds.map((id) => ({ id, name: agents.find((agent) => agent.id === id)?.name ?? '' })),
     createdByUid: uid,
     createdByEmail: email,
     startedAt,
@@ -418,7 +357,7 @@ function rebuildRunFromSetup(
 }
 
 export function InventoryProvider({ children }: PropsWithChildren) {
-  // All three are fetched **when their dropdown opens**, not on mount and not
+  // Both are fetched **when their dropdown opens**, not on mount and not
   // as part of finishing setup — hence `fetchOnMount: false`. Each open tries
   // the server fresh and drops back to the saved copy without saying anything
   // if it can't, which is what `refresh()` already does.
@@ -426,24 +365,15 @@ export function InventoryProvider({ children }: PropsWithChildren) {
   // These are picked once, at one moment in the day, so tying the fetch to the
   // tap is both the freshest possible answer and the cheapest: no requests are
   // spent on lists nobody is looking at.
-  // `isEmpty` on all three for the same reason bread types carry it: a query
+  // `isEmpty` on both for the same reason bread types carry it: a query
   // that comes back with zero documents is indistinguishable from a healthy
   // one, and letting an empty answer overwrite the saved copy — *and the disk* —
-  // would strand a truck at the setup screen with no area, no truck and no crew
+  // would strand a truck at the setup screen with no truck and no agents
   // to pick, every restart, until it found signal again. Keeping the saved copy
   // and reporting `'cache'` leaves the driver able to start the day.
   //
   // No `normalize`: the fetch already applies the manager's order, and the
   // cached copy is the sorted array as it was written.
-  const areas = useCachedCatalog<Area[]>({
-    cacheKey: AREAS_CACHE_KEY,
-    initial: [],
-    isEmpty: (items) => items.length === 0,
-    errorMessage: 'Could not load areas. Check your connection and try again.',
-    fetch: fetchAreas,
-    fetchOnMount: false,
-  });
-
   const trucks = useCachedCatalog<Truck[]>({
     cacheKey: TRUCKS_CACHE_KEY,
     initial: [],
@@ -453,12 +383,12 @@ export function InventoryProvider({ children }: PropsWithChildren) {
     fetchOnMount: false,
   });
 
-  const agentGroups = useCachedCatalog<AgentGroup[]>({
-    cacheKey: AGENT_GROUPS_CACHE_KEY,
+  const agents = useCachedCatalog<Agent[]>({
+    cacheKey: AGENTS_CACHE_KEY,
     initial: [],
-    isEmpty: (groups) => groups.length === 0,
-    errorMessage: 'Could not load crews. Check your connection and try again.',
-    fetch: fetchAgentGroups,
+    isEmpty: (items) => items.length === 0,
+    errorMessage: 'Could not load agents. Check your connection and try again.',
+    fetch: fetchAgents,
     fetchOnMount: false,
   });
 
@@ -494,9 +424,13 @@ export function InventoryProvider({ children }: PropsWithChildren) {
       try {
         const raw = await AsyncStorage.getItem(SETUP_KEY);
         // Spread over EMPTY_SETUP so a setup saved by an older build — one
-        // with no run fields, or with the old `employeeIds` name — still
-        // loads with sane defaults instead of undefined holes.
-        if (!cancelled && raw) setSetup({ ...EMPTY_SETUP, ...(JSON.parse(raw) as Partial<InventorySetup>) });
+        // with no run fields, or a crew-era one with `agentGroupId` and no
+        // `agentIds` — still loads with sane defaults instead of undefined
+        // holes. A half-filled crew-era form simply asks for the agents again.
+        if (!cancelled && raw) {
+          const saved = JSON.parse(raw) as Partial<InventorySetup>;
+          setSetup({ ...EMPTY_SETUP, ...saved, agentIds: Array.isArray(saved.agentIds) ? saved.agentIds : [] });
+        }
       } catch (error) {
         // Costs the user one setup form they can fill in again. An uncaught
         // throw here used to leave the Inventory tab blank forever, because
@@ -548,8 +482,8 @@ export function InventoryProvider({ children }: PropsWithChildren) {
    * Stamping the start time here (rather than deriving it later from "now") is
    * what pins the run to one business day. The sequence is settled here too:
    * the run log gives a starting number — how many runs *this account* has
-   * already opened for this crew on this day, so the first is 1 and carries no
-   * suffix and a crew heading back out gets 2 — and `findFreeRunSequence` then
+   * already opened with these agents on this day, so the first is 1 and carries
+   * no suffix and the same people heading back out get 2 — and `findFreeRunSequence` then
    * asks Firestore whether that number is actually free, taking the next one if
    * it isn't.
    *
@@ -567,7 +501,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
    * The probe never blocks: with no signal it times out and hands back the
    * local count, which is what the phone used to run on outright.
    *
-   * The whole run identity — including the area, truck and agent *names* — is
+   * The whole run identity — including the truck and agent *names* — is
    * snapshotted into the run log now, while the dropdowns that produced them
    * are still loaded. Uploads read the run from there, so a receipt can still
    * be stamped correctly hours later with the catalogs long since replaced.
@@ -577,76 +511,64 @@ export function InventoryProvider({ children }: PropsWithChildren) {
     // and the normal finish path both land here, and opening a *second* run on
     // top of one that is already open is exactly what must not happen.
     if (setup.complete) return true;
-    if (!setup.areaId || !setup.truckId || !setup.agentGroupId || !user) return false;
+    if (!setup.truckId || setup.agentIds.length === 0 || !user) return false;
 
     const startedAt = Date.now();
     const businessDay = businessDayKey(startedAt);
     const truckId = setup.truckId;
-    const agentGroupId = setup.agentGroupId;
     // Lower-cased so `Juan@x.com` and `juan@x.com` are one account and not two
     // runs. Falls back to the uid, which is never null, for the theoretical
     // account with no email address on it.
     const account = (user.email ?? user.uid).toLowerCase();
 
-    // Resolved from the crew list rather than from anything stored in `setup`,
-    // and **not allowed to come back empty**.
+    // Resolved from the agent list rather than from anything stored in `setup`,
+    // and **every ticked agent has to be found**.
     //
-    // The picker can only confirm a crew that has members, and the saved copy
-    // of the crew list hydrates on mount, so in practice this is always
-    // available. But a setup survives an app restart, so a crew id can outlive
-    // the list it came from — and opening a run with no agents on it would be
-    // silent and unfixable afterwards. Throwing puts it in front of the driver
-    // through the retry prompt openRun already wraps this in; backing out of
-    // that prompt returns them to the form with the crew still selected, where
-    // opening the picker re-downloads the list.
-    const crew = agentGroups.value.find((group) => group.id === agentGroupId);
-    const crewMembers = crew?.agents ?? [];
-    if (crewMembers.length === 0) {
+    // The saved copy of the list hydrates on mount, so in practice this always
+    // resolves. But a setup survives an app restart, so an agent id can outlive
+    // the list it came from (deleted on the dashboard since) — and opening a run
+    // naming nobody, or a nameless somebody, would be silent and unfixable
+    // afterwards. Throwing puts it in front of the driver through the retry
+    // prompt openRun already wraps this in; backing out of that prompt returns
+    // them to the form, where opening the picker re-downloads the list.
+    //
+    // Kept in the **list's** order, not the order they were ticked, so the same
+    // people always compose the same run id.
+    const aboard = agents.value.filter((agent) => setup.agentIds.includes(agent.id));
+    if (aboard.length !== setup.agentIds.length) {
       throw new Error(
-        'The crew for this truck could not be read on this phone. Open the Crew list, pick the crew again, then try once more.'
+        'Some of the agents picked for this truck could not be found on this phone. Open the Agents list, check who is ticked, then try once more.'
       );
     }
+    const agentNames = aboard.map((agent) => agent.name);
 
-    const agentGroupName = crew?.name ?? '';
-
-    // Checked after the crew, so a setup that is going to be refused anyway
-    // doesn't spend a round trip first.
-    //
-    // Counted on the crew *segment of the id*, not on `agentGroupId`, because
-    // the id's crew segment is the crew's name: this number's whole job is to
-    // say how many runs already exist under the id about to be composed, so it
-    // has to count exactly what that id would gather together. Two crews
-    // sharing a name are one subject here, and the second is numbered `_2`
-    // rather than landing on the first's document. Comparing ids instead would
-    // count them separately and hand back 1 for both — and with no signal
-    // `findFreeRunSequence` can't catch it, since that is the case where the
-    // local count is all there is.
-    const crewSegment = runIdSegment(agentGroupName);
+    // Counted on the agents *segment of the id*, not on the ids, because this
+    // number's whole job is to say how many runs already exist under the id
+    // about to be composed, so it has to count exactly what that id would
+    // gather together. With no signal `findFreeRunSequence` can't catch a
+    // miscount, since the local count is all there is.
+    const agentsSegment = agentsRunIdSegment(agentNames);
     const localSequence =
       recentRuns.filter(
         (run) =>
           run.businessDay === businessDay &&
-          runIdSegment(run.agentGroupName) === crewSegment &&
+          agentsRunIdSegment(run.agents.map((agent) => agent.name)) === agentsSegment &&
           run.createdByUid === user.uid
       ).length + 1;
-    const { sequence } = await findFreeRunSequence(agentGroupName, account, startedAt, localSequence);
-    const runId = composeRunId(agentGroupName, account, startedAt, sequence);
+    const { sequence } = await findFreeRunSequence(agentNames, account, startedAt, localSequence);
+    const runId = composeRunId(agentNames, account, startedAt, sequence);
 
     const context: RunRecord = {
       runId,
       closedAt: null,
       businessDay,
-      areaId: setup.areaId,
-      areaName: areas.value.find((area) => area.id === setup.areaId)?.name ?? '',
       truckId,
       truckName: trucks.value.find((truck) => truck.id === truckId)?.name ?? '',
-      // The crew's membership is resolved **here and never again**. Who was on
-      // the truck today is a fact about today; re-reading the crew later would
-      // let somebody moved between crews next week rewrite it.
-      agentGroupId,
-      agentGroupName,
-      agentIds: crewMembers.map((agent) => agent.id),
-      agents: crewMembers.map((agent) => ({ id: agent.id, name: agent.name })),
+      // Who was aboard is resolved **here and never again**. Who was on the
+      // truck today is a fact about today; re-reading the names later would let
+      // a rename next week rewrite it.
+      agentIds: aboard.map((agent) => agent.id),
+      agents: aboard.map((agent) => ({ id: agent.id, name: agent.name })),
       createdByUid: user.uid,
       createdByEmail: user.email ?? '',
       startedAt,
@@ -679,7 +601,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
     // and the caller offers to try again rather than starting a day that can
     // never be sent.
     //
-    // Retrying is safe: the id is composed from the business day, crew, account
+    // Retrying is safe: the id is composed from the business day, agents, account
     // and sequence, none of which change between attempts, so a second attempt
     // recomputes the same run and the log dedupes it by id. The Firestore probe
     // doesn't change that — nothing above it writes anything, so the number it
@@ -772,7 +694,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
   const loggedRun = runId ? (recentRuns.find((run) => run.runId === runId) ?? null) : null;
 
   // The log is still the preferred answer — it holds the names the driver
-  // actually picked and the crew as it stood when the run opened. The rebuild
+  // actually picked and the agents as they stood when the run opened. The rebuild
   // is only for when it can't answer at all.
   const currentRun =
     loggedRun ??
@@ -783,28 +705,22 @@ export function InventoryProvider({ children }: PropsWithChildren) {
           setup.runStartedAt,
           user.uid,
           user.email ?? '',
-          areas.value,
           trucks.value,
-          agentGroups.value
+          agents.value
         )
       : null);
 
 
   const value: InventoryContextValue = {
-    areas: areas.value,
-    areasLoading: areas.loading,
-    areasError: areas.error,
-    ensureAreasLoaded: () => void areas.refresh(),
-
     trucks: trucks.value,
     trucksLoading: trucks.loading,
     trucksError: trucks.error,
     ensureTrucksLoaded: () => void trucks.refresh(),
 
-    agentGroups: agentGroups.value,
-    agentGroupsLoading: agentGroups.loading,
-    agentGroupsError: agentGroups.error,
-    ensureAgentGroupsLoaded: () => void agentGroups.refresh(),
+    agents: agents.value,
+    agentsLoading: agents.loading,
+    agentsError: agents.error,
+    ensureAgentsLoaded: () => void agents.refresh(),
 
     setup,
     setupLoading,

@@ -43,11 +43,10 @@ function useIsNarrow(): boolean {
 const NAV_ITEMS: { section: Section; label: string }[] = [
   { section: 'overview', label: 'Overview' },
   { section: 'bread-types', label: 'Bread Types' },
-  // Areas, trucks and crews. Grouped under one nav entry because they're
-  // three short lists a manager sets up once, not three destinations. The
-  // label names all three: it used to say "Areas & Trucks", which left the
-  // agent list with nothing on screen pointing at it.
-  { section: 'reference-lists', label: 'Areas, Trucks & Agents' },
+  // Trucks and agents. Grouped under one nav entry because they're two short
+  // lists a manager sets up once, not two destinations. The label names both.
+  // (Areas had a list here too until they were removed.)
+  { section: 'reference-lists', label: 'Trucks & Agents' },
   { section: 'settings', label: 'Settings' },
 ];
 
@@ -184,7 +183,7 @@ export function DashboardShell() {
             All four sections stay mounted for the life of the app, hidden with
             `display: none` rather than unmounted on switch — the same trick
             overview.tsx uses for its own Live/Trends/Stores tabs. Without it,
-            leaving Bread Types mid-edit (or Areas & Trucks, or a half-typed
+            leaving Bread Types mid-edit (or Trucks & Agents, or a half-typed
             Settings field) and coming back would throw the draft away. Only a
             page reload resets that now. Four sections' worth of listeners
             staying open is the same bounded, accepted cost overview.tsx

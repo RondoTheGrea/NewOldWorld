@@ -10,6 +10,17 @@ open — what exists today is a nudge after every write plus a slow heartbeat.
 The structure is chosen so that retrying is safe by construction, because a
 structure that makes retries dangerous can't be fixed by a retry policy later.
 
+> **Update, October 2026 — crews and areas are gone.** The driver now ticks
+> each agent on the truck one by one; `agentGroups` (crews) and `areas` were
+> removed from the phone, the dashboard and the store records on the owner's
+> call. A run is **one truck, the agents aboard it, one trip out**; its id is
+> keyed on the agents' names; nothing new stamps `areaId`, `areaName`,
+> `agentGroupId` or `agentGroupName`; stores carry neither field. Older runs,
+> receipts and stores in Firestore still hold those fields and nothing reads
+> them (bar a receipt's printed crew name, read as the fallback for
+> `agentNames`). The sections below have been updated; anything still
+> describing crews or areas is history. See the root `CLAUDE.md`.
+
 ---
 
 ## What changed since route-tracking-design.md
@@ -29,10 +40,11 @@ can. Nothing in the existing local flow changes.
 
 ## The one idea: the Run
 
-The owner's requirement is that an upload group **area + truck + crew** with
-its inventory and receipts. That grouping is a real thing with a start and an
-end, so it gets a document of its own. Call it a **run**: one truck, one area,
-one crew, one trip out, and everything they did.
+The owner's requirement is that an upload group **truck + the agents aboard**
+with its inventory and receipts (it was area + truck + crew until crews and
+areas were removed). That grouping is a real thing with a start and an end, so
+it gets a document of its own. Call it a **run**: one truck, its agents, one
+trip out, and everything they did.
 
 **A run is not bounded by the business day.** It used to be described as one —
 "one truck, one area, one crew, one business day" — and that was only ever a
@@ -58,10 +70,10 @@ This already exists on the phone. `context/inventory.tsx` holds:
 
 ```ts
 type InventorySetup = {
-  areaId: string | null;
   truckId: string | null;
-  employeeIds: string[];
+  agentIds: string[];
   complete: boolean;
+  // …plus the pinned run bookkeeping (runId, runStartedAt, runSequence, …)
 };
 ```
 
@@ -77,10 +89,9 @@ Everything else in this document follows from that.
 ## Collection map
 
 ```
-areas/{areaId}                      dashboard-owned    exists (no dashboard UI yet)
 trucks/{truckId}                    dashboard-owned    NEW  (move off AsyncStorage)
-agentGroups/{groupId}               dashboard-owned    a crew
-agents/{agentId}                    dashboard-owned    one person + their groupId
+agents/{agentId}                    dashboard-owned    one person
+areas/{areaId}, agentGroups/{id}    LEGACY, read-only  removed Oct 2026; unread
 breadTypes/{id}                     dashboard-owned    exists
 returnedBreadTypes/{id}             dashboard-owned    exists
 settings/business                   dashboard-owned    exists
@@ -139,30 +150,32 @@ row: zero duplicates.)
 **The run id is the exception — it is composed, not generated:**
 
 ```
-runId = `${businessDay}_${agentGroupName}_${account}`        a run
-      = "2026-08-15_Alpha-Crew_juan@bakery.ph"
+runId = `${businessDay}_${agents}_${account}`        a run
+      = "2026-10-03_Juan-Dela-Cruz+Maria-Santos_juan@bakery.ph"
 
-runId = `${businessDay}_${agentGroupName}_${account}_${n}`   n-th run, n > 1
-      = "2026-08-15_Alpha-Crew_juan@bakery.ph_2"
+runId = `${businessDay}_${agents}_${account}_${n}`   n-th run, n > 1
+      = "2026-10-03_Juan-Dela-Cruz+Maria-Santos_juan@bakery.ph_2"
 ```
 
-**The crew segment is the crew's name, not its document id**, and that is the
-whole reason for composing the id rather than generating one. `grp_9f2a1c` is
-only readable next to the crew list it came from, which is exactly the lookup a
-composed id is meant to save; a name makes a stray document traceable on sight.
-The crew's real id is still stamped on the run and on every child document as
-`agentGroupId` — that is what the dashboard groups by, and none of it depends on
-the id string.
+**The middle segment is the ticked agents' names** — each flattened by
+`runIdSegment` and joined with `+`, in the dashboard list's order
+(`agentsRunIdSegment` in `lib/sync-types.ts`) — not their document ids, and that
+is the whole reason for composing the id rather than generating one: an id is
+only readable next to the list it came from, and a name makes a stray document
+traceable on sight. The owner asked for the id to say who went out. The real ids
+are still stamped on the run and on every child document as `agentIds`.
 
-The name is captured **when the run opens** and the composed id is pinned into
-the setup, never recomposed. So renaming a crew on the dashboard at noon cannot
-re-point an open run at a document that doesn't exist, and a run's id keeps
-saying what the crew was called when it went out.
+(Runs opened while crews existed were keyed on the crew's name —
+`2026-08-15_Alpha-Crew_juan@bakery.ph` — and keep those ids, which are pinned.)
+
+The names are captured **when the run opens** and the composed id is pinned into
+the setup, never recomposed. So renaming an agent on the dashboard at noon
+cannot re-point an open run at a document that doesn't exist.
 
 A name is not unique the way an id is. That is handled rather than avoided: two
-crews sharing a name (or two names that flatten to one id segment) compute the
-same base id, and the second is moved onto `_2` by the same `sequence`
-machinery a crew's own second trip uses — see below.
+runs whose agents flatten to one segment compute the same base id, and the
+second is moved onto `_2` by the same `sequence` machinery a second trip by the
+same people uses — see below.
 
 The id is **not** recomputed to rejoin a run, and used to be. A phone
 reinstalled mid-day takes its local databases with it, so the truck is counted
@@ -171,20 +184,12 @@ the afternoon. `findFreeRunSequence` moves such a phone onto the next free
 number instead, leaving the morning's run open and unmanifested — a visible
 loose end rather than a plausible wrong number.
 
-**The subject of the id is the crew, not the truck.** A run is a crew's trip
-out: the crew is the unit the server compares day to day, and it is the part of
-the setup a driver is least likely to get wrong, because the picker makes them
-open the crew and read its members before it will confirm. A truck can change
-under a crew mid-day — a breakdown, a swap at the depot — and an id keyed to it
-would file one trip under two names. `truckId` is still stamped on the run and
-on every child document, so nothing about grouping a day by truck is lost.
-
 Two suffixes, each closing a different collision. Both matter because both
 failures are silent, and both destroy the manifest — the only number the
 dashboard has for spotting an incomplete upload.
 
-**`account` keeps two phones off each other's run.** Two agents can pick the
-same crew on the same day, one of them by mistake, and with the crew alone
+**`account` keeps two phones off each other's run.** Two phones can tick the
+same people on the same day, one of them by mistake, and with the names alone
 both compute the same id and share one document: the second phone's header
 overwrites the first's (including `status` back to `"open"` on a closed run),
 and whichever ends the day last overwrites the other's manifest. Child
@@ -198,14 +203,14 @@ they were the same account's day. It says something true as well: a run is one
 *account's* trip out, which is what the rest of the document already assumes — `RunManifest` is documented as what the *device*
 believes it produced, and `pendingUploadCount` is that phone's queue.
 
-**`sequence` lets the same account take the same crew out twice in a day.**
+**`sequence` lets the same account take the same people out twice in a day.**
 The first run carries no suffix, so the common case stays short; a second
 appends `_2`. The counter is per business day and resets with it, and it is
 counted per account, so a second agent picking up the same handset starts at
-their own 1. It counts the *crew's* runs, matching what the id is keyed on: a
-crew that comes back and takes a different truck out is still on its second
-trip, and numbering it 1 again would recompute the morning's id and merge the
-two trips into one document.
+their own 1. It counts runs under the same *agents segment*, matching what the
+id is keyed on: the same people coming back and taking a different truck out
+are on their second trip, and numbering it 1 again would recompute the
+morning's id and merge the two trips into one document.
 
 The account comes from the signed-in user. The sequence is settled from two
 sides, because neither side can answer it alone:
@@ -307,12 +312,12 @@ would mean a receipt could arrive half-uploaded.
 
 ### 4. Every child document carries its own copy of the run's identity
 
-Each stock entry and receipt repeats `runId`, `businessDay`, `areaId`,
-`truckId`, `agentGroupId` and `agentIds`, even though its parent run already
-holds them.
+Each stock entry and receipt repeats `runId`, `businessDay`, `truckId` and
+`agentIds`, even though its parent run already holds them. (Documents written
+before crews and areas were removed also carry `areaId` and `agentGroupId`.)
 
 Two reasons. It makes every dashboard query one hop instead of two — filtering
-receipts by area doesn't require loading runs first. And it means a document
+receipts by truck doesn't require loading runs first. And it means a document
 that arrives before its parent run is still completely interpretable, which
 matters because uploads land in whatever order the signal allows.
 
@@ -368,17 +373,13 @@ keeps the two comparable, so a mismatch shows up as a mismatch.
 ```ts
 {
   schemaVersion: 1,
-  runId: "2026-08-15_Alpha-Crew_juan@bakery.ph",
-  businessDay: "2026-08-15",        // Manila, businessDayKey()
-  sequence: 1,                      // 2 if this crew went back out that day
+  runId: "2026-10-03_Juan-Dela-Cruz+Maria-Santos_juan@bakery.ph",
+  businessDay: "2026-10-03",        // Manila, businessDayKey()
+  sequence: 1,                      // 2 if the same people went back out that day
 
-  areaId: "area_abc",
-  areaName: "Novaliches",           // snapshot — survives a later rename
   truckId: "trk_def",
-  truckName: "Truck 3",
-  agentGroupId: "grp_a",            // the crew that was assigned
-  agentGroupName: "Crew A",         // snapshot — survives a later rename
-  agentIds: ["agt_1", "agt_2"],     // who was in that crew when the run opened
+  truckName: "Truck 3",             // snapshot — survives a later rename
+  agentIds: ["agt_1", "agt_2"],     // who the driver ticked when the run opened
   agents: [                         // snapshot, same reasoning
     { id: "agt_1", name: "Juan Dela Cruz" },
     { id: "agt_2", name: "Maria Santos" },
@@ -393,16 +394,9 @@ keeps the two comparable, so a mismatch shows up as a mismatch.
 }
 ```
 
-The `areaName` / `truckName` / `agentGroupName` / `agents` snapshots follow the
-same rule as receipt line items: renaming a truck next month must not rewrite
-what last month's reports say. The ids are there for querying, the names for
-reading.
-
-`agentIds` is a snapshot for a second, sharper reason: a truck is assigned a
-whole crew, and crews gain and lose people. Resolving `agentGroupId` to a
-membership at *read* time would let somebody moved between crews next week
-change who was on the truck today. The crew id says what was assigned; the
-member list says who that was.
+The `truckName` / `agents` snapshots follow the same rule as receipt line
+items: renaming a truck or an agent next month must not rewrite what last
+month's reports say. The ids are there for querying, the names for reading.
 
 ### `runs/{runId}/stockEntries/{entryId}`
 
@@ -420,7 +414,7 @@ Mirrors `Batch` in `lib/stock-types.ts` one for one.
   receiptId: "rcp_x1y2" | null,     // set on "sale" and "void", links back
   createdAt: 1755230400000,
 
-  runId, businessDay, areaId, truckId, agentGroupId, agentIds, createdByUid,  // rule 4
+  runId, businessDay, truckId, agentIds, createdByUid,  // rule 4
   uploadedAt: serverTimestamp(),
 }
 ```
@@ -456,7 +450,7 @@ Mirrors `ReceiptDetail`, minus the draft-only fields.
   proofStoragePath: null,               // reserved — see "Deferred" below
   voidedAt: null,                       // set when the driver voids it
 
-  runId, businessDay, areaId, truckId, agentGroupId, agentIds, createdByUid,  // rule 4
+  runId, businessDay, truckId, agentIds, createdByUid,  // rule 4
   uploadedAt: serverTimestamp(),
 }
 ```
@@ -486,7 +480,7 @@ Two things about it are decisions rather than details:
 
 **The amount is never signed and never netted off anything.** Expenses are
 *informational*: no total on the phone, and nothing on the dashboard — not a
-run's net, not an area's metrics, not the Trends charts — subtracts them from
+run's net, not a truck's metrics, not the Trends charts — subtracts them from
 sales. They are shown beside the takings.
 
 **Deletes are soft**, for the same reason a customer's are: `firestore.rules`
@@ -529,7 +523,7 @@ someone happened to create it.
 {
   schemaVersion: 1,
   storeName, name, deliveryDays: ["Mon", "Thu"],
-  areaId, address, phone, description,
+  address, phone, description,      // (areaId / agentGroupId: removed Oct 2026)
 
   createdAt, updatedAt,             // Date.now(), device clock
   deleted: false,                   // soft delete — see below
@@ -778,7 +772,7 @@ counts that.
 
 ---
 
-## Trucks, agents and areas move to the dashboard
+## Trucks and agents move to the dashboard
 
 The owner's instinct here is right, and it also removes a real problem.
 
@@ -791,20 +785,19 @@ dashboard-owned isn't polish — it's what makes `truckId` mean anything at all.
   dashboard and read-only on mobile, exactly like `breadTypes`.
 - The "Add truck" / "Add employee" modals come out of the mobile setup screen;
   the dropdowns stay.
-- On mobile all three run on the existing `hooks/use-cached-catalog.ts` — the
+- On mobile both run on the existing `hooks/use-cached-catalog.ts` — the
   same fetch-fresh, fall-back-to-saved-copy behaviour the other catalogs have —
   but with **`fetchOnMount: false`**. Each is fetched **when its own dropdown
   opens**, so every open shows the newest list the phone can get hold of, and
   falls back to the saved copy without saying anything when it can't.
 - They are deliberately **not** part of the finish-setup download list. These
-  three are picked at one moment, from a dropdown that just refreshed them;
+  are picked at one moment, from a dropdown that just refreshed them;
   re-downloading them when "Finish setup" is pressed would gate starting the
   day on lists the driver has already successfully chosen from. The finish-time
   fetch stays what it was: bread types, return prices, business details.
-- The dashboard needs simple CRUD pages for **areas** (which exist in Firestore
-  today but have no UI — they're still seeded by hand), **trucks** and
-  **agents**. Areas and trucks are just `{ name }` and share one list-and-form
-  pattern; agents don't, because they are grouped — see below.
+- The dashboard has simple CRUD lists for **trucks** and **agents** — both
+  just `{ name }`, sharing one list-and-form pattern on the reference-lists
+  page. (Areas had one too until they were removed.)
 
 Existing local trucks and employees are test data with local ids and no
 migration path. Since nothing is in production, clear them and re-enter the real
@@ -814,24 +807,14 @@ The mobile code calls these "employees" (`Employee`, `employeeIds`,
 `EMPLOYEES_KEY`) while the owner calls them agents. Worth settling on **agent**
 everywhere while the rename is still cheap — one context file and its callers.
 
-### Agents are grouped into crews
+### Agents were grouped into crews — no longer
 
-A truck is assigned a **whole crew**, not a hand-picked set of people, so
-`agents/{agentId}` carries a `groupId` naming a doc in `agentGroups/{groupId}`,
-and **every agent belongs to exactly one**. An agent outside a group is
-unreachable from the app: nothing on a phone can put them on a truck.
-
-That invariant is why the two collections are edited as one action on the
-dashboard (`apps/web/src/components/agent-groups-section.tsx`) — deleting a crew
-deletes its people, adding a person means naming their crew, and a crew with
-nobody in it is refused before it can be saved. Mobile reads both in one fetch
-and caches the joined result (`fetchAgentGroups` in `context/inventory.tsx`); an
-agent whose `groupId` names no crew is dropped there, since it could never be
-selected anyway.
-
-Two collections rather than one crew document holding an array of members,
-because ids are what runs record. Array elements have no stable id, so a rename
-would be indistinguishable from a swap.
+From August to October 2026 a truck was assigned a **whole crew**
+(`agentGroups/{groupId}`, with `groupId` on each agent). The owner removed crews
+in October 2026: the driver now ticks each agent individually
+(`components/agents-field.tsx`), and `agents` is a flat list. The
+`agentGroups` collection is read-only by rule and unread, kept only so a phone
+on an older build can still finish setup.
 
 ---
 
@@ -928,7 +911,7 @@ match /customers/{customerId} {
 }
 
 match /trucks/{truckId} { /* same shape as breadTypes: all read, dashboard writes */ }
-match /agentGroups/{groupId} { /* same */ }
+match /areas/{areaId}, /agentGroups/{groupId} { /* legacy: read-only, write: false */ }
 match /agents/{agentId} { /* same */ }
 ```
 
@@ -1013,9 +996,8 @@ range filter on the same field is served by the automatic single-field index.
 | Home card + End the Day button | `apps/mobile/src/components/end-day-card.tsx` |
 | Pending queries / `sync_state` | `lib/stock-db.ts`, `lib/receipt-db.ts`, `lib/customer-db.ts` |
 | Business-day boundaries | `apps/mobile/src/lib/business-day.ts` (`businessDayRange`) |
-| Dashboard CRUD for areas/trucks | `apps/web/src/pages/reference-lists.tsx` |
-| Dashboard CRUD for crews + agents | `apps/web/src/components/agent-groups-section.tsx` |
-| Crew picker on mobile | `apps/mobile/src/components/agent-group-field.tsx` |
+| Dashboard CRUD for trucks + agents | `apps/web/src/pages/reference-lists.tsx` |
+| Agent picker on mobile (tick each one) | `apps/mobile/src/components/agents-field.tsx` |
 | Rules and indexes | `firebase/firestore.rules`, `firebase/firestore.indexes.json` |
 
 **A note on the `sync_state` values.** They are `'pending'`, `'synced'` and

@@ -7,7 +7,6 @@ import { ThemedText } from '@/components/themed-text';
 import { WeekdayChips } from '@/components/weekday-chips';
 import { CustomerIcons } from '@/constants/customer-icons';
 import { type Customer } from '@/context/customers';
-import { useInventory } from '@/context/inventory';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { describeError, logError } from '@/lib/errors';
@@ -22,20 +21,8 @@ type CustomerDetailModalProps = {
 
 export function CustomerDetailModal({ customer, onClose, onEdit, onDelete }: CustomerDetailModalProps) {
   const theme = useTheme();
-  const inventory = useInventory();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  // Three states, not two. A store saved before Area and Crew were required
-  // has a null id and is shown as "Not set", because that gap is the reason to
-  // open Edit. A store that *has* an id whose catalog hasn't been downloaded to
-  // this phone resolves to no name — that row is hidden rather than labelled,
-  // since "Not set" would be a plain lie about a store that is filed correctly.
-  const areaName = customer?.areaId
-    ? inventory.areas.find((a) => a.id === customer.areaId)?.name
-    : NotSet;
-  const crewName = customer?.agentGroupId
-    ? inventory.agentGroups.find((g) => g.id === customer.agentGroupId)?.name
-    : NotSet;
 
   function handleClose() {
     setConfirmingDelete(false);
@@ -91,8 +78,6 @@ export function CustomerDetailModal({ customer, onClose, onEdit, onDelete }: Cus
                   <WeekdayChips selected={customer.deliveryDays} />
                 </Field>
 
-                {!!areaName && <Field icon={CustomerIcons.area} label="Area" value={areaName} />}
-                {!!crewName && <Field icon={CustomerIcons.crew} label="Crew" value={crewName} />}
                 {!!customer.address && (
                   <Field icon={CustomerIcons.address} label="Address" value={customer.address} />
                 )}
@@ -152,9 +137,6 @@ export function CustomerDetailModal({ customer, onClose, onEdit, onDelete }: Cus
     </Modal>
   );
 }
-
-/** Shown in place of an Area or Crew a store predating those being required never got. */
-const NotSet = 'Not set';
 
 type FieldProps = {
   icon: SymbolViewProps['name'];

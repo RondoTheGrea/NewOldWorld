@@ -12,11 +12,9 @@ import {
 } from 'react-native';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { DropdownField } from '@/components/dropdown-field';
 import { ThemedText } from '@/components/themed-text';
 import { WeekdayChips } from '@/components/weekday-chips';
 import { type Customer, type CustomerInput, type Weekday } from '@/context/customers';
-import { useInventory } from '@/context/inventory';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useKeyboardSheet } from '@/hooks/use-keyboard-sheet';
 import { useTheme } from '@/hooks/use-theme';
@@ -41,8 +39,6 @@ const EMPTY: CustomerInput = {
   storeName: '',
   name: '',
   deliveryDays: [],
-  areaId: null,
-  agentGroupId: null,
   address: '',
   phone: '',
   description: '',
@@ -68,13 +64,10 @@ type CustomerFormBodyProps = {
 function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps) {
   const theme = useTheme();
   const { overlap, onBackdropLayout, scrollProps } = useKeyboardSheet();
-  const inventory = useInventory();
   const source = editing ?? EMPTY;
   const [storeName, setStoreName] = useState(source.storeName);
   const [name, setName] = useState(source.name);
   const [deliveryDays, setDeliveryDays] = useState<Weekday[]>(source.deliveryDays);
-  const [areaId, setAreaId] = useState<string | null>(source.areaId);
-  const [agentGroupId, setAgentGroupId] = useState<string | null>(source.agentGroupId);
   const [address, setAddress] = useState(source.address);
   const [phone, setPhone] = useState(source.phone);
   const [description, setDescription] = useState(source.description);
@@ -84,20 +77,11 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
   // front of Add. A new store has nothing to overwrite and saves straight off.
   const [confirmingEdit, setConfirmingEdit] = useState(false);
 
-  // Whether the "… is required" messages are on screen. Normally false until
-  // the first press of Save, so a form nobody has finished filling in yet isn't
-  // already scolding the person filling it — every message then updates live as
-  // each field is answered.
-  //
-  // The exception is an **older store opened for editing that is missing its
-  // area or crew** (see `areaId` in lib/customer-types.ts). That store cannot
-  // be saved until the gap is filled, and letting the driver retype an address
-  // first and only then be told so would be a trap — so the requirement is on
-  // screen from the moment the form opens. Every store already has a name and a
-  // store name, so this never fires for those two.
-  const [showErrors, setShowErrors] = useState(
-    editing !== null && (editing.areaId === null || editing.agentGroupId === null),
-  );
+  // Whether the "… is required" messages are on screen. False until the first
+  // press of Save, so a form nobody has finished filling in yet isn't already
+  // scolding the person filling it — every message then updates live as each
+  // field is answered.
+  const [showErrors, setShowErrors] = useState(false);
 
   // The Save button is never disabled for a half-filled form. A greyed-out
   // button is the one control that can't say why it won't work — the driver
@@ -110,8 +94,6 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
   const errors = {
     storeName: cleanStoreName.length === 0 ? 'Store name is required' : null,
     name: cleanName.length === 0 ? 'Name is required' : null,
-    areaId: areaId === null ? 'Area is required' : null,
-    agentGroupId: agentGroupId === null ? 'Crew is required' : null,
   };
   const complete = Object.values(errors).every((message) => message === null);
 
@@ -159,8 +141,7 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
   // Tapping a chip or opening a picker means the user is done with whatever
   // text field they were in — drop the keyboard so it isn't left hovering over
   // the control they just reached for. keyboardShouldPersistTaps="handled" on
-  // the list means these taps don't blur the field on their own. The two
-  // dropdowns below do the same in their onOpen.
+  // the list means these taps don't blur the field on their own.
   function toggleDay(day: Weekday) {
     Keyboard.dismiss();
     setDeliveryDays((days) => (days.includes(day) ? days.filter((d) => d !== day) : [...days, day]));
@@ -179,7 +160,7 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
       // customer-db sanitizes again on the way into SQLite; doing it here too
       // means what gets saved is exactly what this form validated.
       const saved = await onSubmit(
-        sanitizeCustomerInput({ storeName, name, deliveryDays, areaId, agentGroupId, address, phone, description }),
+        sanitizeCustomerInput({ storeName, name, deliveryDays, address, phone, description }),
       );
       // Only close on success, so a failed save never discards the form.
       if (saved) onClose();
@@ -261,55 +242,6 @@ function CustomerFormBody({ editing, onClose, onSubmit }: CustomerFormBodyProps)
               <WeekdayChips selected={deliveryDays} onToggle={toggleDay} />
             </View>
 
-            {/* Required on every save, an edit of an older store included —
-                see `areaId` in lib/customer-types.ts. `emptyText` points at the
-                depot rather than saying "nothing here yet", because an empty
-                list here is now the one thing that can stop an edit, and the
-                fix for it isn't in this form. */}
-            <DropdownField
-              label="Area"
-              required
-              hint={errorFor('areaId')}
-              hintTone="danger"
-              placeholder="Select an area"
-              options={inventory.areas.map((a) => ({ id: a.id, label: a.name }))}
-              loading={inventory.areasLoading}
-              errorText={inventory.areasError}
-              onOpen={() => {
-                Keyboard.dismiss();
-                inventory.ensureAreasLoaded();
-              }}
-              value={areaId}
-              onChange={setAreaId}
-              emptyText="No areas downloaded yet. Finish truck setup to download them."
-            />
-            {/* Required alongside Area, and for the same reason: a store
-                under no crew is one the Customers tab's crew filter can never
-                show, so nobody on the route finds it. Backed by the same
-                cached crew list (inventory.agentGroups) the truck-setup
-                screen's picker uses, so it opens showing whatever is already
-                on the phone and refreshes it the same way that picker does. */}
-            <DropdownField
-              label="Crew"
-              required
-              hint={errorFor('agentGroupId')}
-              hintTone="danger"
-              placeholder="Select a crew"
-              options={inventory.agentGroups.map((g) => ({
-                id: g.id,
-                label: g.name,
-                sublabel: g.agents.length === 1 ? '1 agent' : `${g.agents.length} agents`,
-              }))}
-              loading={inventory.agentGroupsLoading}
-              errorText={inventory.agentGroupsError}
-              onOpen={() => {
-                Keyboard.dismiss();
-                inventory.ensureAgentGroupsLoaded();
-              }}
-              value={agentGroupId}
-              onChange={setAgentGroupId}
-              emptyText="No crews downloaded yet. Finish truck setup to download them."
-            />
             <TextField
               label="Address"
               value={address}

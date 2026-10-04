@@ -404,19 +404,19 @@ export function buildReceiptPrintLines(detail: ReceiptDetail, business: Business
     lines.push(...centered(`Balance Due: ${peso(detail.total - detail.amountPaid)}`, { bold: true }));
   }
 
-  // Who delivered it — the crew snapshotted onto the receipt when it was
-  // finalized, not resolved from the run now (see agentGroupName in
+  // Who delivered it — the agents snapshotted onto the receipt when it was
+  // finalized, not resolved from the run now (see agentNames in
   // lib/receipt-types.ts). Laid out like the payment block above it because it
   // answers the same kind of question about the sale rather than about the
   // goods.
   //
   // Omitted entirely when there is no name, which is what keeps every receipt
   // finalized before this existed printing exactly as it always did — an empty
-  // "Crew:" heading over nothing would be worse than the line's absence.
-  if (detail.agentGroupName) {
+  // "Agents:" heading over nothing would be worse than the line's absence.
+  if (detail.agentNames) {
     lines.push(blank());
-    lines.push(...centered('Crew:', { bold: true }));
-    lines.push(...centered(fromData(detail.agentGroupName)));
+    lines.push(...centered('Agents:', { bold: true }));
+    lines.push(...centered(fromData(detail.agentNames)));
   }
 
   lines.push(blank());

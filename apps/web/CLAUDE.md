@@ -46,10 +46,10 @@ own visual style. Three sub-tabs on one page (`pages/overview.tsx` is just the
 shell and the tab strip):
 
 - **Live** (`components/live-board.tsx`) — one business day as it happens:
-  areas, the runs under them, and a running-total line chart. Opens
+  one list of the day's runs (agents, truck, hours, money). Opens
   `components/run-panel.tsx` for one run.
-- **Trends** (`components/trends-tab.tsx`) — 7/30/90 days of takings by day and
-  by area.
+- **Trends** (`components/trends-tab.tsx`) — a period's takings by day and by
+  truck, plus bread and store statistics.
 - **Stores** (`components/stores-tab.tsx`) — the customer directory, and one
   store's whole receipt history across every truck and every day.
 
@@ -68,7 +68,7 @@ That is also why `.ops-proof-card` redeclares the `--rc-*` tokens it needs.
 Supporting files: `lib/runs.ts` (read-only queries + the arithmetic),
 `lib/customers.ts`, `lib/business-day.ts`, `lib/day-ranges.ts` (calendar ranges
 over business days — what "this week" means, shared by Trends and the summary
-export), `lib/bread-detail.ts` (one bread type cut by crew, area and store —
+export), `lib/bread-detail.ts` (one bread type cut by truck and store —
 what a row of the Trends bread chart opens into), `components/charts.tsx` (the
 chart kit), `pages/overview.css`.
 
@@ -108,31 +108,28 @@ independent.
   separate because `packages/shared` is still empty) only decides *which* day to
   ask for and how to label it. A browser in another timezone would otherwise
   file a 6:30 AM Manila receipt under the previous day.
-- **A receipt's crew is the name the receipt itself carries**, not the crew that
-  id resolves to today. The phone stamps `agentGroupName` at finalize and prints
-  it on the customer's copy (see "Receipts" in `apps/mobile/CLAUDE.md`), so
-  preferring it is what keeps the server describing the same piece of paper the
-  store is holding.
+- **A receipt's agents are the names the receipt itself carries**, not what
+  its `agentIds` resolve to today. The phone stamps `agentNames` at finalize
+  and prints it on the customer's copy (see "Receipts" in
+  `apps/mobile/CLAUDE.md`), so preferring it is what keeps the server
+  describing the same piece of paper the store is holding. A receipt printed
+  while crews existed carries the crew's name (`agentGroupName`) instead, and
+  `readReceipt` in `lib/runs.ts` reads that in as the fallback — it is what that
+  paper says.
   Shown in the run panel's feed, the store history's feed, and — under the
   payment block, where the phone and the paper both put it — in the receipt
   card. That card is **one component, `components/receipt-detail-panel.tsx`,
   serving both places**; there is no second copy to keep in step.
 
-  Nothing was backfilled on the phone, so a receipt finalized before the field
-  existed has no name and each list falls back differently, on purpose. The run
-  panel uses the **run header's own snapshot** — every receipt in it belongs to
-  that one run, so no lookup is needed. The store history spans months and every
-  truck, so it resolves `agentGroupId` against the reference lists and then
-  `agentIds`, ending at "Crew removed" (`crewLabel` in `stores-tab.tsx`). Both
-  hand the *same* resolved label to the receipt card, which is why it takes a
-  `crewName` resolver rather than reading the field itself — a row and the
-  receipt it opens must never name two different crews. With nothing to say the
-  line is omitted, never rendered blank.
-
-  `crewLabel` preferring the stored name **reverses** its original ordering,
-  which resolved the id live on the grounds that a manager wants the crew they
-  can go and ask. That is still what answers for the older receipts; the newer
-  ones just stop drifting away from the paper when a crew is renamed.
+  A receipt finalized before either was recorded has no name, and each list
+  falls back differently, on purpose. The run panel uses the **run header's own
+  `agents` snapshot** — every receipt in it belongs to that one run. The store
+  history spans months and every truck, so it resolves `agentIds` against the
+  Agents list (`agentsLabel` in `stores-tab.tsx`). Both hand the *same* resolved
+  label to the receipt card, which is why it takes an `agentsLabel` resolver
+  rather than reading the field itself — a row and the receipt it opens must
+  never name two different sets of people. With nothing to say the line is
+  omitted, never rendered blank.
 
 - **A voided receipt is listed everywhere and counted nowhere.** The phone can
   void a finalized receipt during its own run (see "Receipts" in
@@ -246,9 +243,10 @@ independent.
     last, alphabetically.
   - **Rows exist only for bread that actually moved.** A catalog entry nothing
     happened to is not a row of zeroes.
-- Areas with no runs stay on the page: "Pasig has no truck out" is worth seeing.
-  A run whose area was since deleted still gets a group, labelled with the name
-  the run captured when it started.
+- **The day's runs are one list** (`RunsSection`), anything still out first,
+  then by start time. It used to be grouped by area; areas were removed on the
+  owner's call (October 2026). Each row leads with the run's agents
+  (`runAgentNames`), falling back to the login that started it.
 - **"Export summary" sits in the day bar beside the day navigation, and is
   dressed as an action rather than as a fifth way to move the day.** Everything
   inside `.ops-daynav` shares one chrome because ‹ Today › and the calendar are
@@ -389,11 +387,11 @@ attempt, or opening another run, clears it.
   the two files read the same way.
 - **Excel aligns by type, not by column**, which is why the period Summary's
   text values are right-aligned by hand (`right()` beside `line()`). A number
-  flushes right and a string flushes left, so From, To, Best crew and Best area
-  hung off the opposite edge of the very column every figure above them lined up
-  on — one block reading as two columns of values. The owner asked for it on
-  Best crew and Best area; From and To got it too, because a single right edge
-  is the whole point.
+  flushes right and a string flushes left, so From, To and Best truck hung off
+  the opposite edge of the very column every figure above them lined up on —
+  one block reading as two columns of values. The owner asked for it on the
+  "Best" rows (then Best crew and Best area); From and To got it too, because a
+  single right edge is the whole point.
 
 ### Exporting a period to Excel
 
@@ -402,9 +400,9 @@ button in the Live tab's day bar. `components/period-export-dialog.tsx` asks
 which days; `lib/period-summary.ts` reads and folds them; and
 `lib/export-period-excel.ts` lays the result out as eight sheets — Summary,
 Breakdown, Bread, Stores, Collected, Expenses, Runs, Receipts. It exists
-because a month gets asked things one run cannot answer: which crew is ahead,
-which round is worth the fuel, which bread nobody buys, which store has stopped
-ordering, and how much of the money is still out there.
+because a month gets asked things one run cannot answer: which truck is ahead,
+which bread nobody buys, which store has stopped ordering, and how much of the
+money is still out there.
 
 - **It lives on Live, not on Trends, and that is the point.** Trends is where a
   period is *looked at*; Live is where the day is *worked*, and "give me the
@@ -469,7 +467,7 @@ ordering, and how much of the money is still out there.
 - **Loaves come off the stock ledger at every level; the money, the stores and
   the returned bread come off the receipts.** Loaded, sold and left-on-truck are
   one arithmetic — `totalStock` builds them so that loaded − sold = left
-  exactly — and a run belongs to exactly one day, one crew and one area, so the
+  exactly — and a run belongs to exactly one day and one truck, so the
   same three numbers roll up to every sheet and still add to the same total.
   Taking "sold" off the receipt lines instead reads just as well on one sheet and
   stops the by-day table totalling to the Summary. Returns have no choice about
@@ -481,7 +479,7 @@ ordering, and how much of the money is still out there.
   `loafColumns()`. Four sheets showing the same figures in four orders is the
   failure that prevents. Sales, Returns, Net and Expenses are on all of them;
   **Collected and Still owed are `moneyColumns({ collected: true })` and only the
-  Runs sheet asks for it.** They were on the day, crew and area rollups too until
+  Runs sheet asks for it.** They were on the day and group rollups too until
   September 2026 and came off on the owner's call — what is still out there is a
   question about the *period*, answered on the Summary and the Collected sheet
   and chased from the Stores sheet, and repeating the split four more times only
@@ -494,8 +492,8 @@ ordering, and how much of the money is still out there.
 - **"Stores" means exactly one thing in this workbook, on every sheet that has
   it**: the number of *different* shops served — the size of a set of
   `customerId`, so a shop served five times counts once and a receipt naming no
-  shop counts nowhere. That holds for the by-day rows, the crew and area
-  rollups, each run, each bread ("shops that took this bread") and the Summary's
+  shop counts nowhere. That holds for the by-day rows, the truck rollup, each
+  run, each bread ("shops that took this bread") and the Summary's
   "Stores served" alike; `period-summary.ts` has only ever built it one way, out
   of a `Set`. **Every sheet carrying it says so in a footnote, in the same
   words** — one `StoresNote` constant in `export-period-excel.ts` — because a
@@ -505,32 +503,29 @@ ordering, and how much of the money is still out there.
   phrasings of one rule is six chances for them to drift into six meanings. Only
   the Bread sheet keeps its own (`BreadStoresNote`), because its Stores column
   answers a different question — the shops that took *that bread*.
-- **By day, By crew and By area are one sheet, "Breakdown"** — three stacked
-  sections, each with a large bold title (20pt, `SectionTitleFont`, on the
-  owner's call — Excel has one bold weight, so size is what makes it stand
-  out), a one-line description and its own framed
-  table. Sections are four blank rows apart with a **full-width slate-grey
-  divider line** through the middle of the gap (`DividerEdge`, added on the
-  owner's call) — grey rather than blue so it can't be mistaken for another
-  table's frame. They were three tabs until September 2026 and
-  the owner asked for one: they are the same figures summed three ways, and one
-  sheet lets them be compared without flipping tabs. **Every figure is in the
-  same column in all three sections** — the crew or area name is merged across
-  A:B to take the place of the day table's Day + Weekday — so the three Net
+- **By day and By truck are one sheet, "Breakdown"** — stacked sections, each
+  with a large bold title (20pt, `SectionTitleFont`, on the owner's call —
+  Excel has one bold weight, so size is what makes it stand out), a one-line
+  description and its own framed table. Sections are four blank rows apart with
+  a **full-width slate-grey divider line** through the middle of the gap
+  (`DividerEdge`, added on the owner's call) — grey rather than blue so it can't
+  be mistaken for another table's frame. They were separate tabs (By day, By
+  crew, By area) until September 2026 and the owner asked for one sheet; when
+  crews and areas were removed (October 2026) **By truck** replaced both. **Every
+  figure is in the same column in every section** — the truck name is merged
+  across A:B to take the place of the day table's Day + Weekday — so the Net
   columns line up vertically. **And every column on that sheet is one width**,
   the widest any heading, figure or total needs in any section (a merged name
-  only needs half, capped), because columns of different widths stacked on
-  each other read as ragged — the owner's call. Nothing on that sheet is frozen,
-  because three header rows can't all be pinned. The Stores and expenses notes
-  are written once at its foot; the crew-rename note sits under the crew table.
-  **Crew and area rows follow the dashboard's own order** — the drag order on
-  the reference lists page, matched by id (`toGroupRows` in
-  `period-summary.ts`), with crews/areas deleted since after them by name and
-  "No crew recorded" / "No area" last. They were highest-net-first until the
-  owner asked for this in September 2026, so the Summary's **Best crew / Best
-  area search for the highest net** (`bestName`) rather than taking the first
-  row. `live-board.tsx` watches the crews and passes them through the export
-  dialog for this.
+  only needs half, capped), because columns of different widths stacked on each
+  other read as ragged — the owner's call. Nothing on that sheet is frozen,
+  because several header rows can't all be pinned. The Stores and expenses
+  notes are written once at its foot; the truck-rename note sits under the
+  truck table. **Truck rows follow the dashboard's own order** — the drag order
+  on the reference lists page, matched by id (`toGroupRows` in
+  `period-summary.ts`), with trucks deleted since after them by name and "No
+  truck recorded" last — so the Summary's **Best truck searches for the highest
+  net** (`bestName`) rather than taking the first row. `live-board.tsx` watches
+  the trucks and passes them through the export dialog for this.
 - **The Summary points at the by-day table by column *heading*, not by letter**
   (`columnOf`). Column letters written out as constants are the classic way for a
   workbook to start quoting the wrong figure — insert one column and every
@@ -542,7 +537,7 @@ ordering, and how much of the money is still out there.
   Summary — a run missing from the list would be invisible, where a row of
   zeroes saying so is a question somebody can ask. It still counts as a run that
   went out, because it was one. The store catalog is an *enrichment* (phone,
-  contact, area) and its failure only blanks those three columns.
+  contact) and its failure only blanks those columns.
 - **The Stores sheet is the one nothing else on this dashboard answers**, and
   that is why it carries a phone number: "Still owed" is the credit and half-paid
   receipts somebody has to chase, and First bought / Last bought are how a store
@@ -567,12 +562,12 @@ ordering, and how much of the money is still out there.
 - **The sheets were cut back in September 2026, and the trimming is the point.**
   Beyond the two above: the Summary lost days-a-truck-went-out, crews out, trucks
   used, areas covered, both loaf shares, both bread-type counts and all three
-  net-per-something averages; by day lost Collected and Still owed; by crew and
-  by area lost those two plus Days out, the counterpart count and the two
-  net-per averages. Footnotes went with them — by area, Bread, Collected and
+  net-per-something averages; by day lost Collected and Still owed; the group
+  rollups lost those two plus Days out, the counterpart count and the two
+  net-per averages. Footnotes went with them — Bread, Collected and
   Stores are down to one line each, and Runs to the "stores cannot be added up"
   one. The figures behind them are all **still folded** in `period-summary.ts`
-  (`days`, `counterparts`, `daysWithRuns`, `trucks`, `daysSince`, a bread row's
+  (`days`, `daysWithRuns`, `trucks`, `daysSince`, a bread row's
   `sales` and `returnsValue`, and `expenseGroups` — the Expenses sheet's grouped
   "What for / Times / Total" table, which the owner also removed, leaving that
   sheet one itemised table with a frozen header), unused by any sheet and deliberately kept: each is
@@ -585,7 +580,7 @@ ordering, and how much of the money is still out there.
   else.** `foldPeriod` filters voided receipts out of each run's receipts before
   any fold runs, and separately lists *every* receipt as a `PeriodReceiptItem`
   (with `voidedAt`). The **Receipts** tab (last, always present) lists day,
-  time, store, crew, truck, payment, **Status** (Finalized / Voided), sales,
+  time, store, agents, truck, payment, **Status** (Finalized / Voided), sales,
   returns, net, collected and voided-at, oldest first. It follows the run
   workbook's rule: voided rows are struck through with Status in red, and every
   total is `SUMIF(Status, "<>Voided", …)` (addTable's `skipRowsWhere`), so its
@@ -626,7 +621,7 @@ ordering, and how much of the money is still out there.
   daily outgrew the first, so store rankings were quietly built from a sample.
   **Don't bring a cap back.** Reads go `ReceiptReadBatch` (8) runs at a time
   with one state update per batch, unended runs first, then newest first; the
-  crew and area filters don't steer the order, since everything is read
+  truck filters don't steer the order, since everything is read
   anyway. A run whose read fails is kept in `failedRuns` and every receipt
   section says how many couldn't be read ("Reload to try again") rather than
   showing a short total as whole. The cost is Firestore reads: one per receipt
@@ -636,21 +631,15 @@ ordering, and how much of the money is still out there.
   and "is everything uploaded" are different questions and the page says so.
 - Every day in the window gets a bar, including empty ones. A chart that
   silently skips a day off misstates the shape of a week.
-- **The crew is the dividing line for performance, not the area** — that was
-  the owner's call, and it is what orders the page. "Net takings by crew" leads
-  the breakdown and "by area" follows it: an area is a *round*, and the
-  comparison worth making is two crews working the same one. The area chart
-  stays because a round can still be a good or a bad one; it is just no longer
-  what a reader lands on first. Both are built by one `groupRuns` helper, so
-  they can't drift apart on how a run with no crew (or no area) is treated —
-  both give it a row of its own under `NoneKey` rather than dropping its money
-  out of the total.
-- **Bread performance is scoped by crew *and* area, and they narrow together.**
-  Either alone answers half a question; the pair answers the one that gets
-  asked — how this crew did on this round. Both filters feed one `inBreadScope`
-  predicate used in two places: which runs the totals count, and the wording
-  of every note and empty state (`breadScope`), so the figures on screen always
-  say what they are a slice of.
+- **The truck is the dividing line for performance** — "Net takings by truck"
+  (`groupRuns` keyed on `truckId`). It was by crew, then by area, until both
+  were removed on the owner's call (October 2026). A run with no truck gets a
+  row of its own under `NoneKey` rather than dropping its money out of the
+  total.
+- **Bread performance can be scoped to one truck.** The filter feeds one
+  `inBreadScope` predicate used in two places: which runs the totals count, and
+  the wording of every note and empty state (`breadScope`), so the figures on
+  screen always say what they are a slice of.
 - **"Reading receipts… N of M runs" counts attempts, not successes.** It reads
   `breadReadCount`, bumped once per batch whether its reads landed or failed.
   Counting the receipts map's size instead left the line up forever as soon as
@@ -730,7 +719,7 @@ ordering, and how much of the money is still out there.
     the chart is the constrained one.
   - **This chart has no tooltip**, and that follows from the line above: with
     both figures already on the row there is nothing left for one to say. The
-    crew and area bars above keep theirs — a bar there carries a quantity its
+    truck bars above keep theirs — a bar there carries a quantity its
     peso value doesn't state.
     - It had **no hover either**, on the argument that a row lighting up under
       the pointer promises something more if it is clicked. That argument was
@@ -810,13 +799,14 @@ ordering, and how much of the money is still out there.
       `matched` flag the annotation ran on went with it; the join still claims
       a name once, it just no longer has anything to report about having done
       so.
-  - **A bread row opens a dialog: one bread, cut by crew, by area and by
-    store.** `components/bread-detail-dialog.tsx`, with the arithmetic in
+  - **A bread row opens a dialog: one bread, cut by truck and by store.**
+    `components/bread-detail-dialog.tsx`, with the arithmetic in
     `lib/bread-detail.ts`. The chart answers "what moved" for every bread at
-    once; the question straight after is always about one of them — which crew
-    shifts it, which round it sells on, which shops take it and which have
-    quietly stopped — and those are three cuts of the same loaves, so they are
-    three blocks of one dialog rather than three more cards on a long tab.
+    once; the question straight after is always about one of them — which truck
+    shifts it, which shops take it and which have quietly stopped — and those
+    are two cuts of the same loaves, so they are two blocks of one dialog
+    rather than more cards on a long tab. (It also cut by crew and by area
+    until those were removed.)
     - **A dialog, not a drawer**, by this page's own rule: a drawer is a place
       you go into and read (a run, a store), a dialog is one question asked and
       answered. It also must not displace the chart, because the reader is
@@ -862,23 +852,21 @@ ordering, and how much of the money is still out there.
       identified shops on the sold side, the list can also hold the no-store
       bucket and a shop that only ever sent the bread back. Once taken it does
       not offer to collapse again: a reader who asked for the list and then had it fold up
-      under them would have to find their place twice. The crew and area cuts
-      are uncapped — those are a handful of rows by nature.
-    - **The crew and the area come off the run, the store off the receipt** —
-      the same places `groupRuns` and `totalReceipts` take them from. A receipt
-      carries an `agentGroupName` of its own, and using *that* here would put a
-      second answer to "which crew" on one page.
+      under them would have to find their place twice. The truck cut is
+      uncapped — a handful of rows by nature.
+    - **The truck comes off the run, the store off the receipt** — the same
+      places `groupRuns` and `totalReceipts` take them from.
     - **Loaves throughout, and no money anywhere in it**, exactly like the
       section it opens from. The store list is Sold / Came back / **Last
       taken** — the stored `businessDay` string formatted, never a day worked
       out from a timestamp — and "last taken" is moved by a sale only: a shop
       that sent bread back last week hasn't taken it since. A shop with returns
       and no sales gets a dash there rather than a date.
-    - **Crews and areas are drawn with `SplitBarChart` again**, the same
+    - **Trucks are drawn with `SplitBarChart` again**, the same
       component and the same two colours as the chart behind the scrim, so blue
       and orange mean the same two things one layer in. Without the `Rate` and
       `Stores` columns, though — four figures on a row in a box half the width
-      is not the same chart. The stores are a **table**, not bars: a crew list
+      is not the same chart. The stores are a **table**, not bars: a truck list
       is a handful of rows a bar compares at a glance, where the shops taking
       one bread run to dozens and what is wanted of them is a roll call with a
       date on it.
@@ -908,7 +896,7 @@ ordering, and how much of the money is still out there.
     Three other spots were tried and rejected by the owner: a labelled row
     with bordered buttons above the cards ("too cluttered"), a centred line
     between the two cards, and inside the first card under its heading.
-    A new period, crew or area
+    A new period or truck
     sends it back to #1–5, and it is hidden when there are five stores or
     fewer.
   - **Graph and table always hold exactly the same stores** — owner's rule.
@@ -962,17 +950,16 @@ ordering, and how much of the money is still out there.
   - **It fires no query.** It folds the receipts the bread section already
     read — every run in the range — and repeats that section's "Reading
     receipts… / could not be read" line.
-  - **It has its own Crew and Area dropdowns** (`storeCrewFilter` /
-    `storeAreaFilter`, `inStoreScope`), added on the owner's call in September
-    2026 and laid out exactly like the bread section's — an `.ops-filterbar`
-    right under the headline, crew first, the same `.ops-scope` grid, and the
-    "Both scope… / Reading receipts…" line. They narrow
-    `storeEntries`, so the tiles, the donut, its table and the curves all move
-    together, and the card notes and empty states carry `storeScope` (" for
-    Crew A in Cainta"). **Separate from the bread filters on purpose**: each
-    pair says which section it scopes, and one section silently narrowing the
-    other would be an unlabelled filter. Both reset when the range changes,
-    like the bread pair.
+  - **It has its own Truck dropdown** (`storeTruckFilter`, `inStoreScope`),
+    laid out exactly like the bread section's — an `.ops-filterbar` right
+    under the headline, the same `.ops-scope` grid, and the "Scopes… /
+    Reading receipts…" line. It narrows `storeEntries`, so the tiles, the
+    donut, its table and the curves all move together, and the card notes and
+    empty states carry `storeScope` (" for Truck 1"). **Separate from the bread
+    filter on purpose**: each says which section it scopes, and one section
+    silently narrowing the other would be an unlabelled filter. Both reset when
+    the range changes. (These were Crew and Area dropdowns until crews and
+    areas were removed.)
   - Same counting rules as everywhere else: voided receipts count nowhere, a
     receipt naming no store is skipped, net is `receipt.total`, days are the
     stored `businessDay` strings, and a store's name is the one on its newest
@@ -996,7 +983,7 @@ ordering, and how much of the money is still out there.
     first, on the argument that a line under a heading separates it from its
     own content while a line above separates this subject from the one before.
     What that missed is that the helper text is *part of* the heading: "the
-    money and the receipts, across every crew and every area in this period"
+    money and the receipts, across every truck in this period"
     says what the section is, and a rule above it left that sentence stranded
     between the rule and the cards, reading as a caption for the first card.
     Under the pair, the two are visibly one object. **Don't move it back up on
@@ -1055,8 +1042,8 @@ ordering, and how much of the money is still out there.
 - **The directory draws 25 stores, then "Show 25 more"** (`StorePageSize`,
   owner's call, September 2026 — it can run to thousands). The filter bar's
   "X of Y stores" always counts the real totals, and the line under the table
-  says how many are drawn. **A search or an area/crew filter shows every
-  match, uncapped** — an answer cut at 25 would hide the store being looked
+  says how many are drawn. **A search shows every match, uncapped** (the Area
+  and Crew filters that used to sit beside it were removed) — an answer cut at 25 would hide the store being looked
   for — and changing any of them starts the paging back at 25.
 - **Searching and filtering grey the list while it redraws** ("Finding
   stores…", `.ops-busy` over `.ops-stores-body`). The filtering is instant; it
@@ -1130,8 +1117,7 @@ wrong place to put numbers nobody can vouch for. To exercise these screens, run
 a day on the mobile app against the emulators: finish truck setup to open a run,
 write and finalize a few receipts, then "End the Day" to produce the manifest
 Trends reads. That also tests the upload path, which a fixture never did.
-`seed-emulator.mjs` stays — it seeds reference lists (areas, trucks, crews and
-their agents,
+`seed-emulator.mjs` stays — it seeds reference lists (trucks, agents and the
 business settings), which are names a manager would have typed anyway, not
 records of anything having happened.
 
@@ -1271,11 +1257,11 @@ user meant two console steps, which meant the developer had to stay in the loop
 
 ## Editing is administrators only
 
-Every dashboard-owned list — **Bread Types** and Returned Bread Types, **Areas**,
-**Trucks**, **Agents** (crews and their members) and **Settings** — is *readable*
+Every dashboard-owned list — **Bread Types** and Returned Bread Types,
+**Trucks**, **Agents** and **Settings** — is *readable*
 by any dashboard account and *editable* only by one carrying `admin: true`, the
 same flag the Team page runs on. Staff who use the dashboard all day still see
-every price, area and receipt setting; changing them is a separate job.
+every price, truck and receipt setting; changing them is a separate job.
 
 - **"Copy from Bread Types" on Returned Bread Types is a mirror, not a merge.**
   It replaces the whole list with an exact copy of Bread Types — same names,
@@ -1296,13 +1282,13 @@ every price, area and receipt setting; changing them is a separate job.
     moves the dropped rows into `deletedIds`; the review lists every removal.
 - **The Edit button stays on screen for everybody**, and pressing it opens a
   notice explaining that an administrator has to make the change
-  (`ADMIN_ONLY_NOTICE` in `src/lib/admin-gate.ts`, one wording for all five
-  sections). Hiding the button was the obvious alternative and is worse: a
+  (`ADMIN_ONLY_NOTICE` in `src/lib/admin-gate.ts`, one wording for every
+  section). Hiding the button was the obvious alternative and is worse: a
   missing button reads as a page that is broken or the wrong one, and the person
   told "the prices are on the dashboard" is left with nothing to go on. A
   disabled button is the same problem with a greyed-out shape.
 - **`firestore.rules` enforces it, the browser only explains it.** Writes to all
-  seven collections go through `isDashboardAdmin()`, so a non-admin who bypasses
+  these collections go through `isDashboardAdmin()`, so a non-admin who bypasses
   the page still can't save. It reads the flag as `get('admin', false)` rather
   than `.admin` — a user document written before the flag existed has no such
   key, and reading a missing key is an *error*, not a false.

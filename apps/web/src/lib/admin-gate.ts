@@ -1,5 +1,5 @@
 /**
- * The four dashboard-owned catalogs — Bread Types, Areas, Trucks, Agents and
+ * The dashboard-owned catalogs — Bread Types, Trucks, Agents and
  * the receipt Settings — are readable by every dashboard account but editable
  * only by an administrator (`admin: true` on the `users/{uid}` doc, the same
  * flag that shows the Team page).

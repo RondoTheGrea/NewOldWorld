@@ -54,7 +54,8 @@ function getDb(): Promise<SQLiteDatabase> {
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           finalized_at INTEGER,
-          agent_group_name TEXT
+          agent_group_name TEXT,
+          agent_names TEXT
         );
         -- Matches loadReceiptPage's ORDER BY exactly, so the keyset cursor is a
         -- range scan rather than a sort of the whole table. See migrateListIndexes.
@@ -102,6 +103,7 @@ function getDb(): Promise<SQLiteDatabase> {
       await migrateCreditRename(db);
       await migrateAgentGroupName(db);
       await migrateVoidedAt(db);
+      await migrateAgentNames(db);
       return db;
     });
     dbPromise = dbPromise.catch((error: unknown) => {
@@ -259,7 +261,7 @@ type ReceiptRow = {
   payment_method: PaymentMethod | null;
   amount_paid: number | null;
   run_id: string | null;
-  agent_group_name: string | null;
+  agent_names: string | null;
   voided_at: number | null;
 };
 
@@ -281,9 +283,9 @@ function rowToSummary(row: ReceiptRow): ReceiptSummary {
     runId: row.run_id,
     // Collapsed to null rather than passed straight through: a row written
     // before the column existed reads back null, but an empty string is also
-    // possible — a run whose crew could not be named — and "no crew" is the
-    // same answer either way.
-    agentGroupName: row.agent_group_name || null,
+    // possible — a run whose agents could not be named — and "nobody named" is
+    // the same answer either way.
+    agentNames: row.agent_names || null,
     voidedAt: row.voided_at ?? null,
   };
 }
@@ -464,7 +466,9 @@ async function migrateCreditRename(db: SQLiteDatabase): Promise<void> {
 }
 
 /**
- * Records which crew was out when a receipt was finalized.
+ * Records which crew was out when a receipt was finalized. Crews have since
+ * been removed — `agent_names` (migrateAgentNames) replaced this column, which
+ * is kept only because SQLite columns aren't dropped in place.
  *
  * The run id already carries the crew's name as a flattened segment, but a
  * segment is not a name — `Alpha-Crew` is what `safeSegment` made of it, and
@@ -508,6 +512,25 @@ async function migrateVoidedAt(db: SQLiteDatabase): Promise<void> {
     await db.execAsync('ALTER TABLE receipts ADD COLUMN voided_at INTEGER');
   }
   await db.execAsync('PRAGMA user_version = 10');
+}
+
+/**
+ * Records who was on the truck when a receipt was finalized — the agents'
+ * names, replacing the crew name (`agent_group_name`) now that crews are gone.
+ *
+ * Same shape as migrateAgentGroupName: nothing is backfilled and no row's
+ * `sync_state` is touched. Every earlier receipt keeps a null here, and every
+ * reader leaves the line out rather than inventing one.
+ */
+async function migrateAgentNames(db: SQLiteDatabase): Promise<void> {
+  const versionRow = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  if ((versionRow?.user_version ?? 0) >= 11) return;
+
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(receipts)');
+  if (!columns.some((column) => column.name === 'agent_names')) {
+    await db.execAsync('ALTER TABLE receipts ADD COLUMN agent_names TEXT');
+  }
+  await db.execAsync('PRAGMA user_version = 11');
 }
 
 async function requireDraft(db: SQLiteDatabase, id: string): Promise<void> {
@@ -597,9 +620,9 @@ export async function createDraft(input: ReceiptDraftInput): Promise<ReceiptDeta
     paymentMethod: null,
     amountPaid: null,
     // A draft belongs to no run yet — markFinalized is what files it under one,
-    // and stamps the crew that was out at that moment along with it.
+    // and stamps who was on the truck at that moment along with it.
     runId: null,
-    agentGroupName: null,
+    agentNames: null,
     voidedAt: null,
     items: input.items,
     returns: input.returns,
@@ -663,20 +686,20 @@ export async function markFinalized(
   runId: string,
   paymentMethod: PaymentMethod,
   amountPaid: number | null,
-  agentGroupName: string | null
+  agentNames: string | null
 ): Promise<{ finalizedAt: number }> {
   const db = await getDb();
   const now = Date.now();
   await db.runAsync(
     `UPDATE receipts
      SET status = 'finalized', finalized_at = ?, payment_method = ?, amount_paid = ?, run_id = ?,
-         agent_group_name = ?
+         agent_names = ?
      WHERE id = ? AND status = 'draft'`,
     now,
     paymentMethod,
     amountPaid,
     runId,
-    agentGroupName,
+    agentNames,
     id
   );
   return { finalizedAt: now };

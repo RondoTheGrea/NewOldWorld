@@ -106,8 +106,9 @@ async function migrateLocalUpdatedAt(db: SQLiteDatabase): Promise<void> {
 }
 
 /**
- * The crew a store is assigned to — optional, so `NULL` (no crew) is a normal
- * value, not an unset one.
+ * The crew a store used to be assigned to. Crews (and store areas) were
+ * removed; the column is still added here so the migration chain is unchanged
+ * on older installs, but nothing reads or writes it any more.
  */
 async function migrateAgentGroupId(db: SQLiteDatabase): Promise<void> {
   const versionRow = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
@@ -254,8 +255,6 @@ type CustomerRow = {
   store_name: string;
   name: string;
   delivery_days: string;
-  area_id: string | null;
-  agent_group_id: string | null;
   address: string;
   phone: string;
   description: string;
@@ -274,8 +273,6 @@ function rowToCustomer(row: CustomerRow): Customer {
     storeName: row.store_name,
     name: row.name,
     deliveryDays: JSON.parse(row.delivery_days) as Weekday[],
-    areaId: row.area_id,
-    agentGroupId: row.agent_group_id,
     address: row.address,
     phone: row.phone,
     description: row.description,
@@ -325,14 +322,12 @@ export async function insertCustomer(input: CustomerInput, customerId?: string):
     isNew: true,
   };
   const inserted = await db.runAsync(
-    `INSERT OR IGNORE INTO customers (id, store_name, name, delivery_days, area_id, agent_group_id, address, phone, description, created_at, updated_at, local_updated_at, is_new)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    `INSERT OR IGNORE INTO customers (id, store_name, name, delivery_days, address, phone, description, created_at, updated_at, local_updated_at, is_new)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     customer.id,
     customer.storeName,
     customer.name,
     JSON.stringify(customer.deliveryDays),
-    customer.areaId,
-    customer.agentGroupId,
     customer.address,
     customer.phone,
     customer.description,
@@ -388,13 +383,11 @@ export async function updateCustomerRow(
   // hiccup, having never actually failed.
   await db.runAsync(
     `UPDATE customers
-     SET store_name = ?, name = ?, delivery_days = ?, area_id = ?, agent_group_id = ?, address = ?, phone = ?, description = ?, updated_at = ?, local_updated_at = ?, sync_state = 'pending', sync_attempts = 0
+     SET store_name = ?, name = ?, delivery_days = ?, address = ?, phone = ?, description = ?, updated_at = ?, local_updated_at = ?, sync_state = 'pending', sync_attempts = 0
      WHERE id = ?`,
     clean.storeName,
     clean.name,
     JSON.stringify(clean.deliveryDays),
-    clean.areaId,
-    clean.agentGroupId,
     clean.address,
     clean.phone,
     clean.description,
@@ -642,14 +635,12 @@ export async function countSyncedCustomers(): Promise<number> {
 export async function upsertCustomerFromServer(remote: PendingCustomer): Promise<boolean> {
   const db = await getDb();
   const result = await db.runAsync(
-    `INSERT INTO customers (id, store_name, name, delivery_days, area_id, agent_group_id, address, phone, description, created_at, updated_at, deleted, sync_state)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+    `INSERT INTO customers (id, store_name, name, delivery_days, address, phone, description, created_at, updated_at, deleted, sync_state)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
      ON CONFLICT(id) DO UPDATE SET
        store_name = excluded.store_name,
        name = excluded.name,
        delivery_days = excluded.delivery_days,
-       area_id = excluded.area_id,
-       agent_group_id = excluded.agent_group_id,
        address = excluded.address,
        phone = excluded.phone,
        description = excluded.description,
@@ -661,8 +652,6 @@ export async function upsertCustomerFromServer(remote: PendingCustomer): Promise
     remote.storeName,
     remote.name,
     JSON.stringify(remote.deliveryDays),
-    remote.areaId,
-    remote.agentGroupId,
     remote.address,
     remote.phone,
     remote.description,

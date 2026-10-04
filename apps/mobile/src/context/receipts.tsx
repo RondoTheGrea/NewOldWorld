@@ -412,19 +412,23 @@ export function ReceiptsProvider({ children }: PropsWithChildren) {
     // a failure throws and the caller can simply run the whole thing again.
     const resolvedAmountPaid = paymentMethod === 'partial' ? (amountPaid ?? null) : null;
 
-    // The crew's name as it reads right now, copied onto the receipt rather
-    // than looked up from the run later — the same snapshot rule the store name
-    // and every item's name follow. A crew renamed next week must not rewrite a
-    // receipt someone is holding a printed copy of. Null when the run can't be
-    // named (a run log that failed to load, a crew that has gone from the
-    // catalog): every reader leaves the line out rather than printing a blank.
-    const crewName = currentRun?.agentGroupName || null;
+    // Who was on the truck, copied onto the receipt rather than looked up from
+    // the run later — the same snapshot rule the store name and every item's
+    // name follow. An agent renamed next week must not rewrite a receipt
+    // someone is holding a printed copy of. Null when nobody can be named (a
+    // run log that failed to load): every reader leaves the line out rather
+    // than printing a blank.
+    const agentNames =
+      currentRun?.agents
+        .map((agent) => agent.name)
+        .filter((name) => name.length > 0)
+        .join(', ') || null;
     const { finalizedAt } = await receiptDb.markFinalized(
       id,
       runId,
       paymentMethod,
       resolvedAmountPaid,
-      crewName
+      agentNames
     );
 
     // Exactly the row markFinalized just wrote — `updated_at` included, which
@@ -438,7 +442,7 @@ export function ReceiptsProvider({ children }: PropsWithChildren) {
       paymentMethod,
       amountPaid: resolvedAmountPaid,
       runId,
-      agentGroupName: crewName,
+      agentNames,
     };
 
     // Past this line the receipt is finalized on disk, so the in-memory list
@@ -499,7 +503,7 @@ export function ReceiptsProvider({ children }: PropsWithChildren) {
               paymentMethod: detail.paymentMethod,
               amountPaid: detail.amountPaid,
               runId: detail.runId,
-              agentGroupName: detail.agentGroupName,
+              agentNames: detail.agentNames,
             }
           : r
       )

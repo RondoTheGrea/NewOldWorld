@@ -48,7 +48,7 @@ export async function markFinalized(
   _runId: string,
   _paymentMethod: PaymentMethod,
   _amountPaid: number | null,
-  _agentGroupName: string | null
+  _agentNames: string | null
 ): Promise<{ finalizedAt: number }> {
   throw new Error(UNAVAILABLE_MESSAGE);
 }

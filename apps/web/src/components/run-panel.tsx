@@ -12,6 +12,7 @@ import {
   describeRunEnd,
   formatCount,
   formatMoney,
+  runAgentNames,
   runEndDay,
   runSpansDays,
   totalExpenses,
@@ -51,8 +52,8 @@ export function RunPanel({
 }: {
   run: Run;
   /**
-   * Which trip of the day this is for this crew, counted across the whole day
-   * by the board. Only the exported file name uses it — two runs by one crew on
+   * Which trip of the day this is for these agents, counted across the whole
+   * day by the board. Only the exported file name uses it — two runs by the same people on
    * one day would otherwise download under the same name.
    */
   tripNumber: number;
@@ -421,15 +422,11 @@ export function RunPanel({
    * customer's copy, so it is what should be read back to them from the server.
    * Every receipt in this panel belongs to *this* run, so the run header's own
    * snapshot is the complete fallback for one written before the phone recorded
-   * a crew: no reference-list lookup is needed here, unlike in the store history
-   * (see `crewLabel` in stores-tab.tsx), which spans every run ever recorded.
-   *
-   * The two agreeing is the ordinary case, and the panel says so twice rather
-   * than assuming it: a crew renamed part-way through a day leaves the run
-   * header on the old name and the afternoon's receipts on the new one, which
-   * is worth being able to see rather than smoothing over.
+   * names: no reference-list lookup is needed here, unlike in the store history
+   * (see `agentsLabel` in stores-tab.tsx), which spans every run ever recorded.
    */
-  const crewNameFor = (receipt: RunReceipt) => receipt.agentGroupName || run.agentGroupName || null;
+  const agentsFor = (receipt: RunReceipt) =>
+    receipt.agentNames || (run.agents.length > 0 ? runAgentNames(run) : null);
 
   return (
     <>
@@ -441,10 +438,10 @@ export function RunPanel({
         ref={drawerRef}
         className={visible ? 'ops-drawer ops-panel-drawer open' : 'ops-drawer ops-panel-drawer'}
         role="dialog"
-        aria-label={`${run.truckName} — ${run.areaName}`}>
+        aria-label={`${run.truckName} — ${runAgentNames(run)}`}>
         <div className="ops-drawer-head">
           <div>
-            <span className="ops-label">{run.areaName || 'No area'}</span>
+            <span className="ops-label">{runAgentNames(run)}</span>
             <h2>
               {run.truckName || 'Unnamed truck'}
               {run.sequence > 1 && <span className="ops-trip">Trip {run.sequence}</span>}
@@ -574,7 +571,7 @@ export function RunPanel({
                           something, so it has to be reachable and operable from the
                           keyboard like every other control on the page. */}
                       {visibleReceipts.map((receipt) => {
-                        const crew = crewNameFor(receipt);
+                        const agents = agentsFor(receipt);
                         return (
                           <button
                             key={receipt.id}
@@ -592,15 +589,11 @@ export function RunPanel({
                                 phrasing content, and these are inside one now. */}
                             <span>
                               <span className="ops-feed-store">{receipt.customerName || 'Unnamed store'}</span>
-                              {/* Time then crew, the same sub-line shape the store
-                                  history uses. Usually the whole feed repeats one
-                                  name — every receipt here belongs to one run —
-                                  and that is the point: the row that *doesn't*
-                                  match the crew in the run's own details above is
-                                  the one worth noticing. */}
+                              {/* Time then agents, the same sub-line shape the
+                                  store history uses. */}
                               <span className="ops-sub">
                                 {formatBusinessTime(receipt.createdAt)}
-                                {crew && ` · ${crew}`}
+                                {agents && ` · ${agents}`}
                               </span>
                             </span>
                             {/* Amount over tag, the same right-hand column the
@@ -825,7 +818,7 @@ export function RunPanel({
                     will otherwise assume the net above has this taken out of it —
                     it does not, anywhere on this dashboard. */}
                 <p className="ops-stat-note">
-                  Recorded by the crew as a note about the trip. Expenses are not deducted from the sales, the net, or
+                  Recorded by the agents as a note about the trip. Expenses are not deducted from the sales, the net, or
                   anything on the Trends tab.
                 </p>
               </div>
@@ -852,18 +845,9 @@ export function RunPanel({
             {detailsOpen && (
               <>
                 <div className="ops-meta">
-                  {/* The crew and its members are two different facts and both
-                      are worth stating: the crew is what was assigned, the
-                      names are who that crew held when the truck went out —
-                      which is the only answer that stays true after somebody
-                      is moved between crews. */}
-                  <div>
-                    <span>Crew</span>
-                    <b>{run.agentGroupName || '—'}</b>
-                  </div>
                   <div>
                     <span>Agents</span>
-                    <b>{run.agents.length > 0 ? run.agents.map((a) => a.name).join(', ') : '—'}</b>
+                    <b>{runAgentNames(run)}</b>
                   </div>
                   <div>
                     <span>Started</span>
@@ -938,7 +922,7 @@ export function RunPanel({
           card inside a scrolling column would scroll away with it. */}
       <ReceiptDetailPanel
         receipt={openReceipt}
-        crewName={crewNameFor}
+        agentsLabel={agentsFor}
         onClose={() => setOpenReceiptId(null)}
       />
     </>

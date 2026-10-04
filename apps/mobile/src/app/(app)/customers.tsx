@@ -6,17 +6,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomerCard } from '@/components/customer-card';
 import { CustomerDetailModal } from '@/components/customer-detail-modal';
 import { CustomerFormModal } from '@/components/customer-form-modal';
-import { CustomerScopeToggle } from '@/components/customer-scope-toggle';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Screen } from '@/components/screen';
-import { ScopeToast } from '@/components/scope-toast';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useCustomers, type Customer, type CustomerInput } from '@/context/customers';
-import { useCustomerScope } from '@/hooks/use-customer-scope';
 import { useTheme } from '@/hooks/use-theme';
-import { useToast } from '@/hooks/use-toast';
-import { type CustomerScope, describeCustomerScope } from '@/lib/customer-scope';
 import { generateId } from '@/lib/id';
 import { runWithRetry } from '@/lib/retry';
 
@@ -39,24 +34,17 @@ function CustomersScreenContent() {
     editing: null,
   });
   const [query, setQuery] = useState('');
-  const scope = useCustomerScope(customers);
-  const scopeToast = useToast();
 
   const normalizedQuery = query.trim().toLowerCase();
   const filteredCustomers = useMemo(() => {
-    if (!normalizedQuery) return scope.visibleCustomers;
+    if (!normalizedQuery) return customers;
     const words = normalizedQuery.split(/\s+/);
-    return scope.visibleCustomers.filter((customer) => {
+    return customers.filter((customer) => {
       const storeName = customer.storeName.toLowerCase();
       const name = customer.name.toLowerCase();
       return words.every((word) => storeName.includes(word) || name.includes(word));
     });
-  }, [scope.visibleCustomers, normalizedQuery]);
-
-  function handleScopeChange(next: CustomerScope) {
-    scope.setScope(next);
-    scopeToast.show(describeCustomerScope(next, scope.crewName));
-  }
+  }, [customers, normalizedQuery]);
 
   if (loading) {
     return <Screen />;
@@ -125,15 +113,6 @@ function CustomersScreenContent() {
 
   return (
     <Screen style={styles.screen}>
-      <View style={styles.scopeToggle}>
-        <CustomerScopeToggle
-          hasCrew={scope.hasCrew}
-          crewName={scope.crewName}
-          scope={scope.scope}
-          onChange={handleScopeChange}
-        />
-      </View>
-
       <View style={styles.header}>
         <View
           style={[styles.searchBar, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
@@ -209,14 +188,10 @@ function CustomersScreenContent() {
           <ThemedText type="default" themeColor="textSecondary" style={styles.empty}>
             {customers.length === 0
               ? 'No customers yet. Tap + to add your first one.'
-              : normalizedQuery
-                ? 'No customers match your search.'
-                : 'No stores are assigned to your crew yet. Switch to “All stores” to see every store, or assign one from its edit screen.'}
+              : 'No customers match your search.'}
           </ThemedText>
         }
       />
-
-      <ScopeToast message={scopeToast.message} token={scopeToast.token} />
 
       <CustomerDetailModal
         customer={selected}
@@ -254,9 +229,6 @@ const styles = StyleSheet.create({
   },
   screen: {
     paddingBottom: 0,
-  },
-  scopeToggle: {
-    marginBottom: Spacing.three,
   },
   header: {
     flexDirection: 'row',

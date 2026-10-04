@@ -1,5 +1,5 @@
 /**
- * One bread type's period, cut three ways: by crew, by area, and by store.
+ * One bread type's period, cut two ways: by truck and by store.
  *
  * The Trends tab's bread chart answers "what moved"; this answers "who moved
  * it and where", for the one bread a reader clicked. It lives here rather than
@@ -16,13 +16,13 @@
  * a dialog opens. The join between a sale and a return is on the bread's
  * *name* and a name may be claimed only once (`lib/run-outcome.ts`, and the
  * `breadMovement` memo), so a breakdown assembled separately would have to
- * restate that rule and could drift from it. The cost is three small maps per
+ * restate that rule and could drift from it. The cost is two small maps per
  * bread type held whether or not anyone opens a dialog, which at a catalog's
  * worth of bread and a period's worth of stores is nothing.
  */
 
 /**
- * One crew, one area or one store, for one bread.
+ * One truck or one store, for one bread.
  *
  * `sold` and `returned` are loaves. `lastDay` is the **stored `businessDay`
  * string** of the most recent receipt that *sold* this bread here — never a
@@ -30,7 +30,7 @@
  * question it answers is "when did they last take it".
  *
  * `lastSeen` is a timestamp and is not displayed: it exists only to decide
- * which spelling of the name to keep when a store or a crew has been renamed
+ * which spelling of the name to keep when a store or a truck has been renamed
  * inside the period. The newest receipt wins, the same rule the bread rows
  * themselves use.
  */
@@ -43,22 +43,20 @@ export type BreadSlice = {
   lastSeen: number;
 };
 
-/** The three cuts, keyed by crew id, area id and customer id respectively. */
+/** The two cuts, keyed by truck id and customer id respectively. */
 export type BreadBreakdown = {
-  crews: Map<string, BreadSlice>;
-  areas: Map<string, BreadSlice>;
+  trucks: Map<string, BreadSlice>;
   stores: Map<string, BreadSlice>;
 };
 
-/** The same three cuts once they are finished with: sorted, biggest first. */
+/** The same two cuts once they are finished with: sorted, biggest first. */
 export type BreadDetail = {
-  crews: BreadSlice[];
-  areas: BreadSlice[];
+  trucks: BreadSlice[];
   stores: BreadSlice[];
 };
 
 export function emptyBreadBreakdown(): BreadBreakdown {
-  return { crews: new Map(), areas: new Map(), stores: new Map() };
+  return { trucks: new Map(), stores: new Map() };
 }
 
 /**
@@ -100,7 +98,7 @@ export function bumpBreadSlice(
  * can only be brought together once the row they both belong to has been
  * decided. That decision is `breadMovement`'s, and this takes it as given.
  *
- * A slice present on one side only survives: a crew that sent loaves back and
+ * A slice present on one side only survives: a truck that brought loaves back and
  * sold none is a row with a zero in Sold, not a row that isn't there.
  */
 export function mergeBreadSlices(sold: Map<string, BreadSlice>, back?: Map<string, BreadSlice>): BreadSlice[] {
@@ -130,13 +128,12 @@ export function mergeBreadSlices(sold: Map<string, BreadSlice>, back?: Map<strin
   );
 }
 
-/** All three cuts merged at once — what one row of the bread chart opens into. */
+/** Both cuts merged at once — what one row of the bread chart opens into. */
 export function joinBreadBreakdowns(sold?: BreadBreakdown, back?: BreadBreakdown): BreadDetail {
   const empty = emptyBreadBreakdown();
   const left = sold ?? empty;
   return {
-    crews: mergeBreadSlices(left.crews, back?.crews),
-    areas: mergeBreadSlices(left.areas, back?.areas),
+    trucks: mergeBreadSlices(left.trucks, back?.trucks),
     stores: mergeBreadSlices(left.stores, back?.stores),
   };
 }

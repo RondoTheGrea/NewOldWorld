@@ -2,10 +2,8 @@ import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { CustomerScopeToggle } from '@/components/customer-scope-toggle';
 import { DropdownField } from '@/components/dropdown-field';
 import { QuantityStepper } from '@/components/quantity-stepper';
-import { ScopeToast } from '@/components/scope-toast';
 import { ThemedText } from '@/components/themed-text';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { type BreadType, useBreadTypes } from '@/context/bread-types';
@@ -13,11 +11,8 @@ import { isNewCustomer, useCustomers } from '@/context/customers';
 import { type ReceiptDetail, type ReceiptDraftInput, type ReceiptItem, type ReceiptReturnItem } from '@/context/receipts';
 import { type ReturnedBreadType, useReturnedBreadTypes } from '@/context/returned-bread-types';
 import { useStock } from '@/context/stock';
-import { useCustomerScope } from '@/hooks/use-customer-scope';
 import { useKeyboardSheet } from '@/hooks/use-keyboard-sheet';
 import { useTheme } from '@/hooks/use-theme';
-import { useToast } from '@/hooks/use-toast';
-import { type CustomerScope, describeCustomerScope } from '@/lib/customer-scope';
 import { describeError, logError } from '@/lib/errors';
 import { formatAmount, formatCount } from '@/lib/money';
 import { notifyFailure } from '@/lib/retry';
@@ -55,8 +50,6 @@ function ReceiptFormBody({ editing, onClose, onSubmit }: ReceiptFormBodyProps) {
   const { breadTypes } = useBreadTypes();
   const { returnedBreadTypes, returnedBreadTypesLoading } = useReturnedBreadTypes();
   const stock = useStock();
-  const customerScope = useCustomerScope(customers);
-  const scopeToast = useToast();
 
   const [showReturns, setShowReturns] = useState((editing?.returns?.length ?? 0) > 0);
   const [customerId, setCustomerId] = useState<string | null>(editing?.customerId ?? null);
@@ -72,30 +65,10 @@ function ReceiptFormBody({ editing, onClose, onSubmit }: ReceiptFormBodyProps) {
   });
   const [saving, setSaving] = useState(false);
 
-  // The picker's list is exactly the current scope — nothing is forced into it.
-  // A store from outside the run's crew (picked while "All stores" was on, or
-  // carried by a draft opened for editing) is left out of the list under the
-  // crew filter on purpose: it isn't a store for that crew. It stays the
-  // selection, though — `pinnedSelection` below keeps the trigger showing it,
-  // and switching to "crew" hides it from the list without unpicking it.
+  // Every store on the phone — the picker has no filter (the owner removed it
+  // along with crews).
   const selectedCustomer = customers.find((c) => c.id === customerId);
-  const customerOptions = customerScope.visibleCustomers;
-
-  // The scope toggle is not a sticky setting. Every time the store picker opens
-  // it snaps back to where the current selection sits: "All stores" only when a
-  // store from outside this run's crew is already chosen — the one case the
-  // crew filter would otherwise hide the current pick — and "crew" for anything
-  // else, a fresh receipt with no selection included. So a picker session that
-  // flicked to "All stores" to browse and then closed without choosing an
-  // outside store doesn't leave the toggle flipped for the next receipt, while
-  // re-opening on a store that really is outside the crew still shows it.
-  const scopeForSelection: CustomerScope =
-    selectedCustomer && selectedCustomer.agentGroupId !== customerScope.crewId ? 'all' : 'crew';
-
-  function handleScopeChange(scope: 'crew' | 'all') {
-    customerScope.setScope(scope);
-    scopeToast.show(describeCustomerScope(scope, customerScope.crewName));
-  }
+  const customerOptions = customers;
 
   // Only bread types currently on the truck are sellable — plus, if editing a
   // draft, whatever it already has a quantity for even if stock has since run
@@ -242,16 +215,13 @@ function ReceiptFormBody({ editing, onClose, onSubmit }: ReceiptFormBodyProps) {
               }))}
               value={customerId}
               onChange={setCustomerId}
-              // Keeps the trigger naming the chosen store even when the crew
-              // filter is hiding it from the list (it's outside this crew).
+              // Keeps the trigger naming the chosen store even if it is no
+              // longer in the list.
               pinnedSelection={
                 selectedCustomer
                   ? { id: selectedCustomer.id, label: selectedCustomer.storeName, sublabel: selectedCustomer.name }
                   : undefined
               }
-              // The toggle isn't remembered between openings — it resets to
-              // match the current selection each time the picker opens.
-              onOpen={() => customerScope.setScope(scopeForSelection)}
               loading={customersLoading}
               errorText={customersError}
               emptyText="No stores on this phone. Finish truck setup to download them, or add one in the Customers tab."
@@ -262,15 +232,6 @@ function ReceiptFormBody({ editing, onClose, onSubmit }: ReceiptFormBodyProps) {
               // to a half-typed receipt — the ✕ is the way out. Same rule as
               // the form sheets.
               closeOnBackdropPress={false}
-              header={
-                <CustomerScopeToggle
-                  hasCrew={customerScope.hasCrew}
-                  crewName={customerScope.crewName}
-                  scope={customerScope.scope}
-                  onChange={handleScopeChange}
-                />
-              }
-              toast={<ScopeToast message={scopeToast.message} token={scopeToast.token} />}
             />
           </View>
 

@@ -71,12 +71,10 @@ import {
  * are totalled from their receipts instead — the same receipts the bread and
  * store sections read, so they are fetched once, and first.
  *
- * **The crew is the dividing line here, not the area.** Performance is
- * compared between crews — an area is a round, and the same round worked by
- * two crews is the comparison worth making — so "Net takings by crew" leads
- * the breakdown and the area chart follows it. Bread performance is scoped by
- * **both**, because the useful question is usually one crew's numbers on one
- * round rather than either on its own.
+ * **The truck is the dividing line here.** Performance is compared between
+ * trucks — "Net takings by truck" — and the bread and store sections can each
+ * be narrowed to one truck. (This used to be by crew and by area; both were
+ * removed on the owner's call.)
  */
 
 type RangeType = 'month' | 'week' | 'day' | 'year' | 'custom';
@@ -106,11 +104,10 @@ const YearOptionCount = 6;
 const ReceiptReadBatch = 8;
 
 /**
- * Stands in for "this run recorded no crew" (or no area) so those runs get a
- * row of their own instead of an empty-string key that a `<select>` can't
- * meaningfully hold. A run that reaches the dashboard without a crew is a run
- * that predates crews or was written by hand — either way it is a real slice
- * of the money and must not be silently dropped from a total.
+ * Stands in for "this run recorded no truck" so those runs get a row of their
+ * own instead of an empty-string key that a `<select>` can't meaningfully hold.
+ * Either way it is a real slice of the money and must not be silently dropped
+ * from a total.
  */
 const NoneKey = '__none__';
 
@@ -174,8 +171,7 @@ type DayTotals = { day: string; sales: number; returns: number; net: number; rec
 /**
  * One bread type's rollup for the period.
  *
- * `breakdown` is the same loaves cut three ways — by crew, by area and by
- * store — filled in the same pass as `quantity` so the per-bread dialog can
+ * `breakdown` is the same loaves cut two ways — by truck and by store — filled in the same pass as `quantity` so the per-bread dialog can
  * never disagree with the row that opens it. Its `stores` map is also what the
  * Stores column counts: the same store buying the same bread on Monday and
  * again on Friday is one store carrying it, the rule `totalReceipts` counts a
@@ -193,7 +189,7 @@ type BreadRow = { key: string; name: string; quantity: number; lastSeen: number;
  * One row of the bread chart, once sales and returns have been joined: what
  * the bar draws, what the table prints, and what the dialog opens into.
  *
- * The two `*Breakdown` fields are the row's three cuts **unmerged** — the sold
+ * The two `*Breakdown` fields are the row's two cuts **unmerged** — the sold
  * side and whichever returns this row claimed — and that split is deliberate.
  * Deciding *which* returns belong to this bread is the join rule, and it stays
  * where the figures are decided (`breadMovement`, on the name, claimed once).
@@ -215,24 +211,20 @@ type BreadMovementRow = {
   backBreakdown?: BreadBreakdown;
 };
 
-/** One row of a "net takings by X" breakdown — the crew and area charts share the shape. */
+/** One row of the "net takings by truck" breakdown. */
 type GroupTotals = { id: string; name: string; net: number; runs: number };
 
-function crewKeyOf(run: Run): string {
-  return run.agentGroupId || NoneKey;
+function truckKeyOf(run: Run): string {
+  return run.truckId || NoneKey;
 }
 
-function areaKeyOf(run: Run): string {
-  return run.areaId || NoneKey;
+function truckNameOf(run: Run): string {
+  return run.truckName || 'No truck recorded';
 }
 
 /**
- * Rolls runs up by whatever key is handed in, biggest net first.
- *
- * One function for both breakdowns rather than two near-identical memos: they
- * differ only in which field they group on and what an unset one is called,
- * and keeping them one function is what stops the two charts drifting apart on
- * how they treat a run with no crew or no area.
+ * Rolls runs up by whatever key is handed in, biggest net first. (It served a
+ * crew and an area chart once; only the truck chart is left.)
  */
 function groupRuns(
   runs: Run[],
@@ -339,16 +331,11 @@ export function TrendsTab() {
   // Every run's receipts — see ReceiptReadBatch above for why the bread and
   // store sections can't ride the manifest path the money charts use.
   //
-  // Two filters, and they narrow together. "Crew A" answers how one crew is
-  // doing; "Cainta" answers what that round sells; the pair answers the
-  // question that actually gets asked — how this crew did on this round —
-  // which neither filter alone can.
-  const [crewFilter, setCrewFilter] = useState<string>('all');
-  const [areaFilter, setAreaFilter] = useState<string>('all');
-  // The store section's own crew/area scope — separate from the bread one, so
+  // One truck, or all of them, for the bread chart.
+  const [truckFilter, setTruckFilter] = useState<string>('all');
+  // The store section's own truck scope — separate from the bread one, so
   // narrowing one section never silently narrows the other.
-  const [storeCrewFilter, setStoreCrewFilter] = useState<string>('all');
-  const [storeAreaFilter, setStoreAreaFilter] = useState<string>('all');
+  const [storeTruckFilter, setStoreTruckFilter] = useState<string>('all');
   const [breadReceipts, setBreadReceipts] = useState<Map<string, RunReceipt[]>>(new Map());
   // Which bread's dialog is open, held as the row's **key** rather than the
   // row itself. A filter switched while it is open then re-resolves against
@@ -372,9 +359,9 @@ export function TrendsTab() {
   const [breadTypes, setBreadTypes] = useState<BreadType[]>([]);
   const [returnedBreadTypes, setReturnedBreadTypes] = useState<ReturnedBreadType[]>([]);
 
-  const [crewExpanded, setCrewExpanded] = useState(false);
+  const [truckExpanded, setTruckExpanded] = useState(false);
   // Which five of the store ranking the two store cards show: 0 is #1–5, 1 is
-  // #6–10. A new period, crew or area re-ranks the stores, so each resets it.
+  // #6–10. A new period or truck re-ranks the stores, so each resets it.
   const [storePage, setStorePage] = useState(0);
 
   // Whether each catalog's first snapshot has landed. An empty list can't say
@@ -416,10 +403,8 @@ export function TrendsTab() {
     let cancelled = false;
     setRuns(null);
     setError(null);
-    setCrewFilter('all');
-    setAreaFilter('all');
-    setStoreCrewFilter('all');
-    setStoreAreaFilter('all');
+    setTruckFilter('all');
+    setStoreTruckFilter('all');
     setBreadReceipts(new Map());
     setFailedRuns(new Set());
     setBreadReadCount(0);
@@ -505,42 +490,31 @@ export function TrendsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runs, extra, from, to]);
 
-  const byCrew = useMemo(
-    () => groupRuns(runs ?? [], crewKeyOf, (run) => run.agentGroupName || 'No crew recorded', figuresFor),
+  const byTruck = useMemo(
+    () => groupRuns(runs ?? [], truckKeyOf, truckNameOf, figuresFor),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [runs, extra],
   );
 
-  const byArea = useMemo(
-    () => groupRuns(runs ?? [], areaKeyOf, (run) => run.areaName || 'No area', figuresFor),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [runs, extra],
-  );
+  // Built from the breakdown rather than from `runs` again, so a dropdown can
+  // never offer a truck that has no row in the chart above it.
+  const truckOptions = useMemo(() => optionsFrom(byTruck), [byTruck]);
 
-  // Built from the breakdowns rather than from `runs` again, so a dropdown can
-  // never offer a crew or an area that has no row in the chart above it.
-  const crewOptions = useMemo(() => optionsFrom(byCrew), [byCrew]);
-  const areaOptions = useMemo(() => optionsFrom(byArea), [byArea]);
-
-  /** Whether a run falls inside the bread charts' current scope. Both filters apply. */
+  /** Whether a run falls inside the bread chart's current scope. */
   const inBreadScope = useMemo(() => {
-    return (run: Run) =>
-      (crewFilter === 'all' || crewKeyOf(run) === crewFilter) &&
-      (areaFilter === 'all' || areaKeyOf(run) === areaFilter);
-  }, [crewFilter, areaFilter]);
+    return (run: Run) => truckFilter === 'all' || truckKeyOf(run) === truckFilter;
+  }, [truckFilter]);
 
-  /** The same test for the store section's own two dropdowns. */
+  /** The same test for the store section's own dropdown. */
   const inStoreScope = useMemo(() => {
-    return (run: Run) =>
-      (storeCrewFilter === 'all' || crewKeyOf(run) === storeCrewFilter) &&
-      (storeAreaFilter === 'all' || areaKeyOf(run) === storeAreaFilter);
-  }, [storeCrewFilter, storeAreaFilter]);
+    return (run: Run) => storeTruckFilter === 'all' || truckKeyOf(run) === storeTruckFilter;
+  }, [storeTruckFilter]);
 
   // Reads every run's receipts, ReceiptReadBatch at a time, for the money of
   // unended runs, bread performance and the store statistics alike. Runs with
   // no manifest go first, because the money charts at the top are waiting on
   // them; newest first after that. One state update per batch, not per run.
-  // The crew and area filters don't steer it — everything is read either way.
+  // The truck filters don't steer it — everything is read either way.
   useEffect(() => {
     if (!runs) return;
 
@@ -589,16 +563,12 @@ export function TrendsTab() {
       const receipts = breadReceipts.get(run.id);
       if (!receipts) continue;
 
-      // The three cuts are taken from the run for the crew and the area and
-      // from the receipt for the store, which is the same place each chart on
-      // this tab takes them from: `groupRuns` keys on the run's own
-      // `agentGroupId`/`areaId`, and a receipt carries the shop. Using the
-      // receipt's `agentGroupName` here instead would be a second answer to
-      // "which crew" on the same page.
-      const crewKey = crewKeyOf(run);
-      const crewName = run.agentGroupName || 'No crew recorded';
-      const areaKey = areaKeyOf(run);
-      const areaName = run.areaName || 'No area';
+      // The two cuts are taken from the run for the truck and from the receipt
+      // for the store, which is the same place each chart on this tab takes
+      // them from: `groupRuns` keys on the run's own `truckId`, and a receipt
+      // carries the shop.
+      const truckKey = truckKeyOf(run);
+      const truckName = truckNameOf(run);
 
       for (const receipt of receipts) {
         // A voided receipt moved nothing: its loaves went back on the truck and
@@ -629,8 +599,7 @@ export function TrendsTab() {
             row.name = item.name;
             row.lastSeen = receipt.createdAt;
           }
-          bumpBreadSlice(row.breakdown.crews, crewKey, crewName, item.quantity, false, receipt.createdAt, receipt.businessDay);
-          bumpBreadSlice(row.breakdown.areas, areaKey, areaName, item.quantity, false, receipt.createdAt, receipt.businessDay);
+          bumpBreadSlice(row.breakdown.trucks, truckKey, truckName, item.quantity, false, receipt.createdAt, receipt.businessDay);
           bumpBreadSlice(row.breakdown.stores, storeKey, storeName, item.quantity, false, receipt.createdAt, receipt.businessDay);
           sold.set(key, row);
         }
@@ -646,8 +615,7 @@ export function TrendsTab() {
             breakdown: emptyBreadBreakdown(),
           };
           row.quantity += ret.quantity;
-          bumpBreadSlice(row.breakdown.crews, crewKey, crewName, ret.quantity, true, receipt.createdAt, receipt.businessDay);
-          bumpBreadSlice(row.breakdown.areas, areaKey, areaName, ret.quantity, true, receipt.createdAt, receipt.businessDay);
+          bumpBreadSlice(row.breakdown.trucks, truckKey, truckName, ret.quantity, true, receipt.createdAt, receipt.businessDay);
           bumpBreadSlice(row.breakdown.stores, storeKey, storeName, ret.quantity, true, receipt.createdAt, receipt.businessDay);
           returned.set(ret.name, row);
         }
@@ -706,7 +674,7 @@ export function TrendsTab() {
         returned: back?.quantity ?? 0,
         stores: countStores(row.breakdown.stores),
         // Which returns this row owns is settled here and nowhere else, so the
-        // dialog's crews, areas and stores are the same claim of the same
+        // dialog's trucks and stores are the same claim of the same
         // returns the row's own figures are. Only the folding is deferred.
         breakdown: row.breakdown,
         backBreakdown: back?.breakdown,
@@ -776,8 +744,8 @@ export function TrendsTab() {
 
   /**
    * Every store's period, from the receipts the bread section already read —
-   * no query of its own — narrowed by the store section's **own** crew and
-   * area dropdowns (`inStoreScope`). Not the bread ones: those sit under the
+   * no query of its own — narrowed by the store section's **own** truck
+   * dropdown (`inStoreScope`). Not the bread ones: those sit under the
    * Bread headline and say they scope the bread chart, and a store ranking
    * that quietly moved with them would be an unlabelled filter. Every tile
    * and chart in the section reads from this one list, so they all narrow
@@ -874,28 +842,18 @@ export function TrendsTab() {
   );
 
   /**
-   * " for Crew A in Cainta" — appended to each bread chart's note so the
-   * figures on screen always say out loud what they are a slice of. Empty when
-   * nothing is filtered, which reads as "everything".
+   * " for Truck 1" — appended to each bread chart's note so the figures on
+   * screen always say out loud what they are a slice of. Empty when nothing is
+   * filtered, which reads as "everything".
    */
-  const breadScope = [
-    crewFilter === 'all' ? null : ` for ${crewOptions.find(([id]) => id === crewFilter)?.[1] ?? 'this crew'}`,
-    areaFilter === 'all' ? null : ` in ${areaOptions.find(([id]) => id === areaFilter)?.[1] ?? 'this area'}`,
-  ]
-    .filter(Boolean)
-    .join('');
+  const breadScope =
+    truckFilter === 'all' ? '' : ` for ${truckOptions.find(([id]) => id === truckFilter)?.[1] ?? 'this truck'}`;
 
-  /** " for Crew A in Cainta" for the store section — `breadScope`'s twin. */
-  const storeScope = [
-    storeCrewFilter === 'all'
-      ? null
-      : ` for ${crewOptions.find(([id]) => id === storeCrewFilter)?.[1] ?? 'this crew'}`,
-    storeAreaFilter === 'all'
-      ? null
-      : ` in ${areaOptions.find(([id]) => id === storeAreaFilter)?.[1] ?? 'this area'}`,
-  ]
-    .filter(Boolean)
-    .join('');
+  /** " for Truck 1" for the store section — `breadScope`'s twin. */
+  const storeScope =
+    storeTruckFilter === 'all'
+      ? ''
+      : ` for ${truckOptions.find(([id]) => id === storeTruckFilter)?.[1] ?? 'this truck'}`;
 
   const period = byDay.reduce(
     (sum, row) => ({
@@ -1037,7 +995,7 @@ export function TrendsTab() {
       {from && to && (
         <SectionHeadline
           title="General statistics"
-          note="The money and the receipts, across every crew and every area in this period."
+          note="The money and the receipts, across every truck in this period."
         />
       )}
 
@@ -1130,25 +1088,20 @@ export function TrendsTab() {
             )}
           </ChartCard>
 
-          {/* Crew before area, because the crew is the comparison that gets
-              made: an area is a round, and two crews working the same round is
-              the pair of numbers worth putting side by side. The area chart
-              stays below it — a round can still be a good or a bad one — but it
-              is no longer the heading a reader lands on first. */}
           <ChartCard
-            title="Net takings by crew"
-            note={`Across all ${formatCount((runs ?? []).length)} runs in the period. Each crew is named as it was when the run started.`}
+            title="Net takings by truck"
+            note={`Across all ${formatCount((runs ?? []).length)} runs in the period. Each truck is named as it was when the run started.`}
             table={
               <table className="ops-table">
                 <thead>
                   <tr>
-                    <th>Crew</th>
+                    <th>Truck</th>
                     <th className="ops-num">Net</th>
                     <th className="ops-num">Runs</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(crewExpanded ? byCrew : byCrew.slice(0, 3)).map((row) => (
+                  {(truckExpanded ? byTruck : byTruck.slice(0, 3)).map((row) => (
                     <tr key={row.id}>
                       <td>{row.name}</td>
                       <td className="ops-num">
@@ -1157,11 +1110,11 @@ export function TrendsTab() {
                       <td className="ops-num">{formatCount(row.runs)}</td>
                     </tr>
                   ))}
-                  {!crewExpanded && byCrew.length > 3 && (
+                  {!truckExpanded && byTruck.length > 3 && (
                     <tr>
                       <td colSpan={3} style={{ textAlign: 'center', paddingTop: '12px', paddingBottom: '12px' }}>
                         <button
-                          onClick={() => setCrewExpanded(true)}
+                          onClick={() => setTruckExpanded(true)}
                           style={{
                             background: 'none',
                             border: 'none',
@@ -1171,16 +1124,16 @@ export function TrendsTab() {
                             padding: 0,
                             font: 'inherit',
                           }}>
-                          Show {byCrew.length - 3} more crew{byCrew.length - 3 === 1 ? '' : 's'}
+                          Show {byTruck.length - 3} more truck{byTruck.length - 3 === 1 ? '' : 's'}
                         </button>
                       </td>
                     </tr>
                   )}
-                  {crewExpanded && byCrew.length > 3 && (
+                  {truckExpanded && byTruck.length > 3 && (
                     <tr>
                       <td colSpan={3} style={{ textAlign: 'center', paddingTop: '12px', paddingBottom: '12px' }}>
                         <button
-                          onClick={() => setCrewExpanded(false)}
+                          onClick={() => setTruckExpanded(false)}
                           style={{
                             background: 'none',
                             border: 'none',
@@ -1198,18 +1151,18 @@ export function TrendsTab() {
                 </tbody>
               </table>
             }>
-            {byCrew.length === 0 ? (
+            {byTruck.length === 0 ? (
               <ChartEmpty>No runs were recorded in this period.</ChartEmpty>
             ) : (
               <>
                 <BarChart
-                  rows={(crewExpanded ? byCrew : byCrew.slice(0, 3)).map((row) => ({ key: row.id, label: row.name, value: row.net }))}
+                  rows={(truckExpanded ? byTruck : byTruck.slice(0, 3)).map((row) => ({ key: row.id, label: row.name, value: row.net }))}
                   formatFull={formatMoney}
                 />
-                {!crewExpanded && byCrew.length > 3 && (
+                {!truckExpanded && byTruck.length > 3 && (
                   <div style={{ textAlign: 'center', paddingTop: '18px' }}>
                     <button
-                      onClick={() => setCrewExpanded(true)}
+                      onClick={() => setTruckExpanded(true)}
                       style={{
                         background: 'none',
                         border: 'none',
@@ -1219,14 +1172,14 @@ export function TrendsTab() {
                         padding: 0,
                         font: 'inherit',
                       }}>
-                      Show {byCrew.length - 3} more crew{byCrew.length - 3 === 1 ? '' : 's'}
+                      Show {byTruck.length - 3} more truck{byTruck.length - 3 === 1 ? '' : 's'}
                     </button>
                   </div>
                 )}
-                {crewExpanded && byCrew.length > 3 && (
+                {truckExpanded && byTruck.length > 3 && (
                   <div style={{ textAlign: 'center', paddingTop: '12px' }}>
                     <button
-                      onClick={() => setCrewExpanded(false)}
+                      onClick={() => setTruckExpanded(false)}
                       style={{
                         background: 'none',
                         border: 'none',
@@ -1244,83 +1197,27 @@ export function TrendsTab() {
             )}
           </ChartCard>
 
-          <ChartCard
-            title="Net takings by area"
-            note={`Across all ${formatCount((runs ?? []).length)} runs in the period.`}
-            table={
-              <table className="ops-table">
-                <thead>
-                  <tr>
-                    <th>Area</th>
-                    <th className="ops-num">Net</th>
-                    <th className="ops-num">Runs</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {byArea.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.name}</td>
-                      <td className="ops-num">
-                        <b>{formatMoney(row.net)}</b>
-                      </td>
-                      <td className="ops-num">{formatCount(row.runs)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            }>
-            {byArea.length === 0 ? (
-              <ChartEmpty>No runs were recorded in this period.</ChartEmpty>
-            ) : (
-              <BarChart
-                rows={byArea.map((row) => ({ key: row.id, label: row.name, value: row.net }))}
-                formatFull={formatMoney}
-              />
-            )}
-          </ChartCard>
-
           <SectionHeadline
             title="Bread statistics"
             note="Counted from the receipts themselves."
           />
 
-          {/* Bread performance gets its own scope, because "for this crew, on
-              this round" is the question here — not two more columns bolted
-              onto the charts above. Same period; a narrower slice of it. Crew
-              first, since it is the dividing line the rest of the tab leads
-              with. */}
+          {/* Bread performance gets its own scope — one truck, or all of them.
+              Same period; a narrower slice of it. */}
           <div className="ops-filterbar">
-            {/* The two dropdowns share one grid so they can share one width —
-                see .ops-scope in overview.css. Nothing else belongs inside it:
-                the grid is sized by what it contains, so the note below would
-                stretch it. */}
+            {/* The dropdown sits in the same grid the store section's does —
+                see .ops-scope in overview.css. */}
             <div className="ops-scope">
-              <label className="ops-muted" htmlFor="trends-crew-filter">
-                Crew
+              <label className="ops-muted" htmlFor="trends-truck-filter">
+                Truck
               </label>
               <select
-                id="trends-crew-filter"
+                id="trends-truck-filter"
                 className="ops-select"
-                value={crewFilter}
-                onChange={(event) => setCrewFilter(event.target.value)}>
-                <option value="all">All crews</option>
-                {crewOptions.map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-
-              <label className="ops-muted" htmlFor="trends-area-filter">
-                Area
-              </label>
-              <select
-                id="trends-area-filter"
-                className="ops-select"
-                value={areaFilter}
-                onChange={(event) => setAreaFilter(event.target.value)}>
-                <option value="all">All areas</option>
-                {areaOptions.map(([id, name]) => (
+                value={truckFilter}
+                onChange={(event) => setTruckFilter(event.target.value)}>
+                <option value="all">All trucks</option>
+                {truckOptions.map(([id, name]) => (
                   <option key={id} value={id}>
                     {name}
                   </option>
@@ -1328,13 +1225,11 @@ export function TrendsTab() {
               </select>
             </div>
 
-            {/* Both narrow together, which is worth saying out loud: two
-                dropdowns side by side are as easily read as "or". */}
             {/* Where the bread figures' honesty lives: what they are a slice
                 of, whether they are still loading, and whether any run's
                 receipts failed to read. */}
             <span className="ops-muted">
-              Both scope the bread chart below.{receiptStatus}
+              Scopes the bread chart below.{receiptStatus}
             </span>
           </div>
 
@@ -1348,7 +1243,7 @@ export function TrendsTab() {
             /* Says the rows are openable. A hover highlight tells a reader
                who is already pointing at one; this tells the reader who
                isn't. */
-            note="Click any bread for its crews, areas and stores."
+            note="Click any bread for its trucks and stores."
             fullTable
             /* Under the table as well as under the bars. It is what the whole
                card adds up to rather than a caption for the drawing, and a
@@ -1444,42 +1339,23 @@ export function TrendsTab() {
           />
 
           {/* The store section's own scope, laid out exactly like the bread
-              one above — same grid, same order (crew first), same honesty
-              line — so the two read as one idiom. */}
+              one above — same grid, same honesty line — so the two read as
+              one idiom. */}
           <div className="ops-filterbar">
             <div className="ops-scope">
-              <label className="ops-muted" htmlFor="trends-store-crew-filter">
-                Crew
+              <label className="ops-muted" htmlFor="trends-store-truck-filter">
+                Truck
               </label>
               <select
-                id="trends-store-crew-filter"
+                id="trends-store-truck-filter"
                 className="ops-select"
-                value={storeCrewFilter}
+                value={storeTruckFilter}
                 onChange={(event) => {
-                  setStoreCrewFilter(event.target.value);
+                  setStoreTruckFilter(event.target.value);
                   setStorePage(0);
                 }}>
-                <option value="all">All crews</option>
-                {crewOptions.map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-
-              <label className="ops-muted" htmlFor="trends-store-area-filter">
-                Area
-              </label>
-              <select
-                id="trends-store-area-filter"
-                className="ops-select"
-                value={storeAreaFilter}
-                onChange={(event) => {
-                  setStoreAreaFilter(event.target.value);
-                  setStorePage(0);
-                }}>
-                <option value="all">All areas</option>
-                {areaOptions.map(([id, name]) => (
+                <option value="all">All trucks</option>
+                {truckOptions.map(([id, name]) => (
                   <option key={id} value={id}>
                     {name}
                   </option>
@@ -1488,7 +1364,7 @@ export function TrendsTab() {
             </div>
 
             <span className="ops-muted">
-              Both scope the store figures below.{receiptStatus}
+              Scopes the store figures below.{receiptStatus}
             </span>
           </div>
 
@@ -1688,7 +1564,7 @@ export function TrendsTab() {
       )}
       </div>
 
-      {/* One bread, cut by crew, by area and by store. Rendered last so it
+      {/* One bread, cut by truck and by store. Rendered last so it
           sits above the tab in source order as well as in z-index, and only
           while its row still exists — see `openBread`. It reads the figures
           the row already holds and fires no query of its own. */}

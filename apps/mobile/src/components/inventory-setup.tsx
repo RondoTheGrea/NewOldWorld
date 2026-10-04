@@ -2,7 +2,7 @@ import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
-import { AgentGroupField } from '@/components/agent-group-field';
+import { AgentsField } from '@/components/agents-field';
 import { CatalogFetchAlert } from '@/components/catalog-fetch-alert';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DropdownField } from '@/components/dropdown-field';
@@ -47,8 +47,7 @@ const AllPending: Record<CatalogKey, FetchStatus> = {
 
 /**
  * One-time setup a truck's device must complete before the Inventory tab lets
- * it populate stock: which Area it serves, which Truck it is, and which Crew
- * is aboard. Shown by inventory.tsx until `setup.complete`.
+ * it populate stock: which Truck it is and which agents are aboard. Shown by inventory.tsx until `setup.complete`.
  *
  * Stays the screen shown even after setup finishes — it just swaps the form
  * for a read-only summary plus "Edit Inventory Draft". Only the first saved
@@ -76,7 +75,7 @@ export function InventorySetup() {
   const [confirmingFinish, setConfirmingFinish] = useState(false);
 
   const { setup } = inventory;
-  const canFinish = !!setup.areaId && !!setup.truckId && !!setup.agentGroupId;
+  const canFinish = !!setup.truckId && setup.agentIds.length > 0;
 
   // Pulled fresh right as the truck heads out, so the rest of the day starts
   // from a known-current copy of each instead of whatever happened to be
@@ -84,8 +83,8 @@ export function InventorySetup() {
   // adding a row here and nothing else — the progress list, the failure
   // prompt and the retry all read from this array.
   //
-  // Only the ones the driver never sees a picker for. Area, truck and crews
-  // are deliberately NOT here: each of those fetches when its own picker opens
+  // Only the ones the driver never sees a picker for. Truck and agents are
+  // deliberately NOT here: each of those fetches when its own picker opens
   // (see context/inventory.tsx), so by the time Finish setup is pressed they
   // have already been as fresh as the signal allowed. Re-downloading them here
   // would gate finishing the day's setup on three lists the user just
@@ -209,13 +208,11 @@ export function InventorySetup() {
   }
 
   if (setup.complete) {
-    const areaName = inventory.areas.find((a) => a.id === setup.areaId)?.name ?? '—';
     const truckName = inventory.trucks.find((t) => t.id === setup.truckId)?.name ?? '—';
-    // Read from the run rather than from the crew list, because the run is
+    // Read from the run rather than from the agent list, because the run is
     // where the answer was pinned: it holds the names as they were when the
-    // day started, and it is still right if the crews are re-fetched — or
+    // day started, and it is still right if the list is re-fetched — or
     // edited on the dashboard — halfway through the trip.
-    const crewName = inventory.currentRun?.agentGroupName || '—';
     const agentNames = inventory.currentRun?.agents.map((a) => a.name).join(', ') || '—';
 
     return (
@@ -223,9 +220,7 @@ export function InventorySetup() {
         <ThemedText type="subtitle">This truck is set up</ThemedText>
 
         <View style={styles.summary}>
-          <SummaryRow label="Area" value={areaName} />
           <SummaryRow label="Truck" value={truckName} />
-          <SummaryRow label="Crew" value={crewName} />
           <SummaryRow label="Agents" value={agentNames} />
         </View>
 
@@ -282,7 +277,7 @@ export function InventorySetup() {
       </ThemedText>
 
       <View style={styles.form}>
-        {/* All three lists are dashboard-owned and read-only here. There is no
+        {/* Both lists are dashboard-owned and read-only here. There is no
             "Add new" any more: a truck typed into one phone used to get an id
             only that phone knew, which made it impossible to group anything
             uploaded by truck. Adding one is now the manager's job.
@@ -290,17 +285,6 @@ export function InventorySetup() {
             Each fetches on open, and falls back to the saved copy in silence
             if the server doesn't answer — so opening a picker always shows the
             newest list this phone can get hold of. */}
-        <DropdownField
-          label="Area"
-          placeholder="Select an area"
-          options={inventory.areas.map((a) => ({ id: a.id, label: a.name }))}
-          loading={inventory.areasLoading}
-          errorText={inventory.areasError}
-          onOpen={inventory.ensureAreasLoaded}
-          value={setup.areaId}
-          onChange={(areaId) => inventory.updateSetup({ areaId })}
-        />
-
         <DropdownField
           label="Truck"
           placeholder="Select a truck"
@@ -312,18 +296,17 @@ export function InventorySetup() {
           onChange={(truckId) => inventory.updateSetup({ truckId })}
         />
 
-        {/* Not a DropdownField: a crew is chosen as a whole, and the driver has
-            to be able to see who is in it before committing to it. See
-            agent-group-field.tsx. */}
-        <AgentGroupField
-          label="Crew"
-          placeholder="Select a crew"
-          groups={inventory.agentGroups}
-          loading={inventory.agentGroupsLoading}
-          errorText={inventory.agentGroupsError}
-          onOpen={inventory.ensureAgentGroupsLoaded}
-          value={setup.agentGroupId}
-          onChange={(agentGroupId) => inventory.updateSetup({ agentGroupId })}
+        {/* Not a DropdownField: several people are ticked, not one row
+            picked. See agents-field.tsx. */}
+        <AgentsField
+          label="Agents"
+          placeholder="Select the agents"
+          agents={inventory.agents}
+          loading={inventory.agentsLoading}
+          errorText={inventory.agentsError}
+          onOpen={inventory.ensureAgentsLoaded}
+          value={setup.agentIds}
+          onChange={(agentIds) => inventory.updateSetup({ agentIds })}
         />
       </View>
 
@@ -346,7 +329,7 @@ export function InventorySetup() {
       <ConfirmDialog
         visible={confirmingFinish}
         title="Start the day?"
-        message="Check the area, truck and crew above are right before continuing."
+        message="Check the truck and agents above are right before continuing."
         cancelLabel="Go back"
         confirmLabel="Continue"
         onCancel={() => setConfirmingFinish(false)}
@@ -408,7 +391,7 @@ function FetchStatusRow({ label, status }: { label: string; status: FetchStatus 
  * Label on the left, value on the right — and the value **wraps** rather than
  * running off the row.
  *
- * "Agents" is the reason: it's every crew member's name joined together, so it
+ * "Agents" is the reason: it's every agent's name joined together, so it
  * is routinely longer than the line. It is deliberately not truncated with an
  * ellipsis the way the picker trigger is — this screen is the record of who is
  * on the truck today, and a name that's been cut in half is worse than a row

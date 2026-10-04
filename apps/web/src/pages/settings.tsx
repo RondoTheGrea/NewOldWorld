@@ -14,7 +14,7 @@ import { NoticeModal } from '@/pages/bread-types';
  * The business details printed on every receipt.
  *
  * Same edit-mode / review-then-confirm workflow as every other dashboard-owned
- * list (Bread Types, Areas & Trucks, Agents) — one editing pattern across the
+ * list (Bread Types, Trucks & Agents) — one editing pattern across the
  * whole dashboard, not two. It matters more here than it looks: these three
  * strings go straight onto printed paper, and a typo in the contact number is
  * only noticed by a customer trying to ring it.

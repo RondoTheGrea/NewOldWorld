@@ -48,11 +48,8 @@ export type RunHistoryMoney = {
 export type RunHistorySummary = {
   runId: string;
   businessDay: string;
-  areaName: string;
   truckName: string;
-  /** The crew that was assigned. Empty on a run closed before crews existed. */
-  agentGroupName: string;
-  /** Who was in that crew when the run started — not who is in it now. */
+  /** Who was on the truck when the run started — as their names read then. */
   agentNames: string[];
   startedAt: number;
   closedAt: number;

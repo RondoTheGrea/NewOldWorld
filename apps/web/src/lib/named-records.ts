@@ -13,8 +13,8 @@ import {
 import { db } from '@/lib/firebase';
 
 /**
- * Areas and trucks — two of the reference lists the mobile setup screen reads
- * to identify what a truck is doing today.
+ * Trucks and agents — the reference lists the mobile setup screen reads to
+ * identify what a truck is doing today.
  *
  * Both are just `{ name, order }`, so one module covers them. They matter more
  * than their shape suggests: the **id** of the doc a manager creates here is
@@ -26,9 +26,9 @@ import { db } from '@/lib/firebase';
  * on a rename, and runs snapshot the *name* at the time they started, so
  * history never rewrites itself. See docs/sync-design.md.
  *
- * **Agents are deliberately not here.** They are grouped into crews, and the
- * two collections have to be written as one edit to keep every agent inside a
- * group — see lib/agent-groups.ts.
+ * Agents used to live in their own module because they were grouped into
+ * crews; crews were removed, so they are a flat list like trucks. An agent doc
+ * written back then may still carry a `groupId` — nothing reads it.
  */
 
 export type NamedRecord = {
@@ -41,7 +41,7 @@ export type NamedRecord = {
 export type NamedRecordInput = { name: string; order: number };
 
 /** The collections this module manages. Adding a third means adding it here and a section on the page. */
-export type NamedCollection = 'areas' | 'trucks';
+export type NamedCollection = 'trucks' | 'agents';
 
 /**
  * Live-subscribes to one list, sorted by the manual `order` field — the same

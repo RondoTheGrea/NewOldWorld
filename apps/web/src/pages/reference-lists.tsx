@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 
-import { AgentGroupsSection } from '@/components/agent-groups-section';
 import { useAuth } from '@/context/auth';
 import { ADMIN_ONLY_NOTICE } from '@/lib/admin-gate';
 import { NoticeModal } from '@/pages/bread-types';
@@ -15,20 +14,17 @@ import {
 } from '@/lib/named-records';
 
 /**
- * Areas, Trucks and Agents — the lists a truck picks from when it starts its
- * day, and the ids everything it uploads is grouped by.
+ * Trucks and Agents — the lists a truck picks from when it starts its day, and
+ * the ids everything it uploads is grouped by.
  *
  * Same edit-mode / review-then-confirm / drag-to-reorder workflow as the
  * Bread Types page (`bread-types.tsx`), just without the fields that don't
  * apply here (price, unit). Kept in step with that page on the owner's call —
  * one editing pattern across every dashboard-owned list, not two.
  *
- * Areas and Trucks are flat `{ name }` lists and share `NamedListSection`
- * below. **Agents are not** — they are grouped into crews, and a truck is
- * assigned a whole crew rather than a hand-picked set of people, so that
- * section edits two collections at once and lives in
- * `components/agent-groups-section.tsx`. It follows the same workflow, which
- * is why it sits on this page rather than getting a nav entry of its own.
+ * Both are flat `{ name }` lists and share `NamedListSection` below. (Agents
+ * used to be grouped into crews, and Areas had a list here too; both were
+ * removed on the owner's call — the phone now ticks agents one by one.)
  */
 
 type ListConfig = {
@@ -44,15 +40,6 @@ type ListConfig = {
 
 const LISTS: ListConfig[] = [
   {
-    collectionName: 'areas',
-    title: 'Areas',
-    addLabel: 'Add area',
-    placeholder: 'Cainta',
-    empty: 'No areas yet. Press Edit to add the first one — trucks can’t finish setup without one.',
-    singular: 'area',
-    hint: 'A group of stores a truck covers. Each store (customer) belongs to one area, and each truck serves one area per day.',
-  },
-  {
     collectionName: 'trucks',
     title: 'Trucks',
     addLabel: 'Add truck',
@@ -60,6 +47,15 @@ const LISTS: ListConfig[] = [
     empty: 'No trucks yet. Press Edit to add the first one — trucks can’t finish setup without one.',
     singular: 'truck',
     hint: 'Every receipt and inventory entry the app uploads is filed under the truck picked here, so a truck must exist on this page before its phone can start a day.',
+  },
+  {
+    collectionName: 'agents',
+    title: 'Agents',
+    addLabel: 'Add agent',
+    placeholder: 'Juan Dela Cruz',
+    empty: 'No agents yet. Press Edit to add the first one — trucks can’t finish setup without one.',
+    singular: 'agent',
+    hint: 'The people who ride the trucks. When a phone starts its day, the driver ticks everyone on this list who is aboard.',
   },
 ];
 
@@ -117,7 +113,6 @@ export function ReferenceListsPage() {
       {LISTS.map((list) => (
         <NamedListSection key={list.collectionName} config={list} />
       ))}
-      <AgentGroupsSection />
     </div>
   );
 }
@@ -470,10 +465,10 @@ function ReviewChangesModal({
           // Worth stating plainly: past records are safe because each run
           // stores the name it saw at the time, so deleting can't rewrite
           // history. What it does break is anything still pointing at the
-          // id — a phone mid-setup, or a store filed under this {singular}.
+          // id — a phone mid-setup.
           <p className="modal-warning">
             Days already recorded keep their name and are not affected. But any phone that has already picked a
-            deleted {singular} will need to choose again, and stores filed under it will show no {singular}.
+            deleted {singular} will need to choose again.
           </p>
         )}
 

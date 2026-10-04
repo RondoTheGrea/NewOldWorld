@@ -3,7 +3,6 @@ import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 're
 import { ChartCard, ChartEmpty, ColumnChart, compactMoney, type Column } from '@/components/charts';
 import { ReceiptTag } from '@/components/payment-tag';
 import { ReceiptDetailPanel } from '@/components/receipt-detail-panel';
-import { watchAgentGroups, watchAgents, type Agent, type AgentGroup } from '@/lib/agent-groups';
 import { formatBusinessTime } from '@/lib/business-day';
 import { formatDeliveryDays, watchCustomers, type Customer } from '@/lib/customers';
 import { watchNamedRecords, type NamedRecord } from '@/lib/named-records';
@@ -24,8 +23,6 @@ import { fetchReceiptsForCustomer, formatCount, formatMoney, type RunReceipt } f
  * and every day.
  */
 
-const ALL = '__all__';
-
 /**
  * How many stores the directory draws before offering "Show 25 more". It can
  * run to thousands, and a table of thousands of rows is slow to draw and
@@ -36,13 +33,9 @@ const StorePageSize = 25;
 
 export function StoresTab() {
   const [customers, setCustomers] = useState<Customer[] | null>(null);
-  const [areas, setAreas] = useState<NamedRecord[]>([]);
-  const [agentGroups, setAgentGroups] = useState<AgentGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
-  const [areaFilter, setAreaFilter] = useState<string>(ALL);
-  const [crewFilter, setCrewFilter] = useState<string>(ALL);
   const [selected, setSelected] = useState<Customer | null>(null);
   // How many rows of the unfiltered directory are drawn — see StorePageSize.
   const [shownStores, setShownStores] = useState(StorePageSize);
@@ -54,29 +47,18 @@ export function StoresTab() {
       ),
     [],
   );
-  useEffect(() => watchNamedRecords('areas', setAreas), []);
-  // A store stamps `agentGroupId`, not a name — resolved against the crew list
-  // as it reads now, the same bargain the receipt feed's crew label makes.
-  useEffect(() => watchAgentGroups(setAgentGroups), []);
-
-  const areaNames = useMemo(() => new Map(areas.map((area) => [area.id, area.name])), [areas]);
-  const crewNames = useMemo(() => new Map(agentGroups.map((group) => [group.id, group.name])), [agentGroups]);
-
-  // The list is drawn from *deferred* copies of the search and the filters.
-  // The box and the dropdowns update the instant they are touched; the table
-  // catches up behind them in a render React can interrupt, and `drawing` is
-  // true in between — which is what the grey overlay shows. Without this, a
-  // filter matching hundreds of stores froze the page, typing included.
+  // The list is drawn from a *deferred* copy of the search. The box updates the
+  // instant it is touched; the table catches up behind it in a render React can
+  // interrupt, and `drawing` is true in between — which is what the grey
+  // overlay shows. Without this, a search matching hundreds of stores froze the
+  // page, typing included. (There were Area and Crew filters here too; both
+  // were removed along with areas and crews.)
   const deferredSearch = useDeferredValue(search);
-  const deferredArea = useDeferredValue(areaFilter);
-  const deferredCrew = useDeferredValue(crewFilter);
-  const drawing = search !== deferredSearch || areaFilter !== deferredArea || crewFilter !== deferredCrew;
+  const drawing = search !== deferredSearch;
 
   const filtered = useMemo(() => {
     const needle = deferredSearch.trim().toLowerCase();
     return (customers ?? []).filter((customer) => {
-      if (deferredArea !== ALL && (customer.areaId ?? '') !== deferredArea) return false;
-      if (deferredCrew !== ALL && (customer.agentGroupId ?? '') !== deferredCrew) return false;
       if (!needle) return true;
       // Searched across everything printed on the row plus the address, so a
       // half-remembered street name finds the shop.
@@ -85,13 +67,13 @@ export function StoresTab() {
         .toLowerCase()
         .includes(needle);
     });
-  }, [customers, deferredSearch, deferredArea, deferredCrew]);
+  }, [customers, deferredSearch]);
 
-  // A search or a filter shows every match — the reader asked a question, and
-  // an answer cut at 25 would hide the store they were looking for. Only the
-  // whole directory is paged, and changing the question starts it back at 25.
-  const narrowed = deferredSearch.trim() !== '' || deferredArea !== ALL || deferredCrew !== ALL;
-  useEffect(() => setShownStores(StorePageSize), [deferredSearch, deferredArea, deferredCrew]);
+  // A search shows every match — the reader asked a question, and an answer cut
+  // at 25 would hide the store they were looking for. Only the whole directory
+  // is paged, and changing the question starts it back at 25.
+  const narrowed = deferredSearch.trim() !== '';
+  useEffect(() => setShownStores(StorePageSize), [deferredSearch]);
   const visible = narrowed ? filtered : filtered.slice(0, shownStores);
 
   return (
@@ -104,30 +86,6 @@ export function StoresTab() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-
-        <select className="ops-select" value={areaFilter} onChange={(event) => setAreaFilter(event.target.value)}>
-          <option value={ALL}>All areas</option>
-          {areas.map((area) => (
-            <option key={area.id} value={area.id}>
-              {area.name}
-            </option>
-          ))}
-          {/* A store whose area was deleted, or that never had one, still has to
-              be findable — otherwise it can only be reached by scrolling. */}
-          <option value="">No area</option>
-        </select>
-
-        <select className="ops-select" value={crewFilter} onChange={(event) => setCrewFilter(event.target.value)}>
-          <option value={ALL}>All crews</option>
-          {agentGroups.map((group) => (
-            <option key={group.id} value={group.id}>
-              {group.name}
-            </option>
-          ))}
-          {/* Same reasoning as "No area" — a store with no crew, or one whose
-              crew was deleted, has to be reachable without scrolling. */}
-          <option value="">No crew</option>
-        </select>
 
         <span className="ops-muted">
           {customers === null ? 'Loading…' : `${formatCount(filtered.length)} of ${formatCount(customers.length)} stores`}
@@ -160,14 +118,12 @@ export function StoresTab() {
         ) : filtered.length === 0 ? (
           <div className="ops-empty">
             <strong>Nothing matches</strong>
-            No store matches that search and those filters.
+            No store matches that search.
           </div>
         ) : (
           <StoreTable
             stores={visible}
             selectedId={selected?.id ?? null}
-            areaNames={areaNames}
-            crewNames={crewNames}
             onSelect={setSelected}
           />
         )}
@@ -188,7 +144,6 @@ export function StoresTab() {
       {selected && (
         <StorePanel
           customer={selected}
-          areaName={selected.areaId ? (areaNames.get(selected.areaId) ?? 'Area deleted') : 'No area'}
           onClose={() => setSelected(null)}
         />
       )}
@@ -205,14 +160,10 @@ export function StoresTab() {
 const StoreTable = memo(function StoreTable({
   stores,
   selectedId,
-  areaNames,
-  crewNames,
   onSelect,
 }: {
   stores: Customer[];
   selectedId: string | null;
-  areaNames: Map<string, string>;
-  crewNames: Map<string, string>;
   onSelect: (customer: Customer) => void;
 }) {
   return (
@@ -222,8 +173,6 @@ const StoreTable = memo(function StoreTable({
           <thead>
             <tr>
               <th>Store</th>
-              <th>Area</th>
-              <th>Crew</th>
               <th>Delivery days</th>
               <th>Phone</th>
             </tr>
@@ -245,8 +194,6 @@ const StoreTable = memo(function StoreTable({
                   <div className="ops-truck">{customer.storeName || 'Unnamed store'}</div>
                   <div className="ops-sub">{customer.name || 'No contact name'}</div>
                 </td>
-                <td>{customer.areaId ? (areaNames.get(customer.areaId) ?? 'Area deleted') : 'No area'}</td>
-                <td>{customer.agentGroupId ? (crewNames.get(customer.agentGroupId) ?? 'Crew deleted') : 'No crew'}</td>
                 <td>{formatDeliveryDays(customer.deliveryDays)}</td>
                 <td>{customer.phone || '—'}</td>
               </tr>
@@ -273,43 +220,28 @@ const ReceiptPageSize = 10;
  * Who was out when this receipt was written, in the order the answers can be
  * trusted.
  *
- * **The receipt's own recorded name comes first**, because it is the one answer
- * that is a fact about *this receipt* rather than about the crew today: the
- * phone copied it onto the row at finalize and printed it on the customer's
- * copy. Someone reading the server's copy of a receipt back to the store over the telephone has to
- * be describing the same piece of paper, and a crew renamed since would
- * otherwise make this row contradict it.
+ * **The receipt's own recorded names come first**, because they are the one
+ * answer that is a fact about *this receipt*: the phone copied them onto the
+ * row at finalize and printed them on the customer's copy (a receipt from while
+ * crews existed carries the crew's name instead — see `agentNames` on
+ * RunReceipt). Someone reading the server's copy back to the store over the
+ * telephone has to be describing the same piece of paper.
  *
- * That reverses the original ordering here, which resolved `agentGroupId`
- * against the reference lists as they read *now* on the grounds that a manager
- * wants the crew they can go and ask. The lookup is still what answers for a
- * receipt finalized before the phone recorded a name — nothing was backfilled
- * (see the Receipts section of CLAUDE.md) — so no row loses a crew it used to
- * show; the newer ones simply stop drifting away from the paper.
- *
- * The `agentIds` fallback is why all three fields are worth reading. Deleting a
- * crew deletes its people too, so it usually can't help — but an agent moved out
- * of a crew that was later deleted still names somebody, and a name is worth
- * more than "Crew removed". Only with nothing at all to say does this return
- * null and the row omit the segment: a receipt written before crews existed
- * carries none of the three, and "No crew" would read as information.
+ * A receipt finalized before the phone recorded names falls back to its
+ * `agentIds`, resolved against the Agents list as it reads now. Only with
+ * nothing at all to say does this return null and the row omit the segment.
  */
-function crewLabel(receipt: RunReceipt, crewNames: Map<string, string>, agentNames: Map<string, string>) {
-  if (receipt.agentGroupName) return receipt.agentGroupName;
-
-  const name = receipt.agentGroupId ? crewNames.get(receipt.agentGroupId) : undefined;
-  if (name) return name;
+function agentsLabel(receipt: RunReceipt, agentNames: Map<string, string>) {
+  if (receipt.agentNames) return receipt.agentNames;
 
   const people = receipt.agentIds
     .map((id) => agentNames.get(id))
     .filter((agentName): agentName is string => !!agentName)
     .join(', ');
-  if (people) return people;
-
-  return receipt.agentGroupId ? 'Crew removed' : null;
+  return people || null;
 }
 
-function StorePanel({ customer, areaName, onClose }: { customer: Customer; areaName: string; onClose: () => void }) {
+function StorePanel({ customer, onClose }: { customer: Customer; onClose: () => void }) {
   /**
    * The same slide-in-from-the-right / fade-in-scrim the run panel uses (see
    * run-panel.tsx for the full rationale), on the shared .ops-panel-drawer /
@@ -349,8 +281,7 @@ function StorePanel({ customer, areaName, onClose }: { customer: Customer; areaN
   const [receipts, setReceipts] = useState<RunReceipt[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trucks, setTrucks] = useState<NamedRecord[]>([]);
-  const [agentGroups, setAgentGroups] = useState<AgentGroup[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agents, setAgents] = useState<NamedRecord[]>([]);
   /**
    * Which receipt is open on the left, held as an **id** rather than the row
    * itself — the same contract the run panel uses, so one card serves both.
@@ -363,13 +294,10 @@ function StorePanel({ customer, areaName, onClose }: { customer: Customer; areaN
   const [shownReceipts, setShownReceipts] = useState(ReceiptPageSize);
 
   useEffect(() => watchNamedRecords('trucks', setTrucks), []);
-  /* Both crew lists, for the same reason the trucks list is here: a receipt
-     stamps ids, not names. Two listeners rather than one because an agent's
-     crew is a field on the agent, so somebody can move between crews without
-     either crew document being touched. They live and die with this panel, so
-     a reader who never opens a store pays for neither. */
-  useEffect(() => watchAgentGroups(setAgentGroups), []);
-  useEffect(() => watchAgents(setAgents), []);
+  /* The agents list, for the same reason the trucks list is here: a receipt
+     stamps ids, not names. Both live and die with this panel, so a reader who
+     never opens a store pays for neither. */
+  useEffect(() => watchNamedRecords('agents', setAgents), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -407,7 +335,6 @@ function StorePanel({ customer, areaName, onClose }: { customer: Customer; areaN
   }, [openReceiptId]);
 
   const truckNames = useMemo(() => new Map(trucks.map((truck) => [truck.id, truck.name])), [trucks]);
-  const crewNames = useMemo(() => new Map(agentGroups.map((group) => [group.id, group.name])), [agentGroups]);
   const agentNames = useMemo(() => new Map(agents.map((agent) => [agent.id, agent.name])), [agents]);
 
   // Voided receipts stay in the list below and count in none of these, the
@@ -479,7 +406,7 @@ function StorePanel({ customer, areaName, onClose }: { customer: Customer; areaN
         )}
         <div className="ops-drawer-head">
           <div>
-            <span className="ops-label">{areaName}</span>
+            <span className="ops-label">Store</span>
             <h2>{customer.storeName || 'Unnamed store'}</h2>
           </div>
           <button type="button" className="ops-drawer-close" onClick={requestClose} aria-label="Close">
@@ -501,14 +428,6 @@ function StorePanel({ customer, areaName, onClose }: { customer: Customer; areaN
               <div>
                 <span>Delivery days</span>
                 <b>{formatDeliveryDays(customer.deliveryDays)}</b>
-              </div>
-              <div>
-                <span>Crew</span>
-                <b>
-                  {customer.agentGroupId
-                    ? (crewNames.get(customer.agentGroupId) ?? 'Crew deleted')
-                    : 'No crew'}
-                </b>
               </div>
               <div>
                 <span>Address</span>
@@ -594,7 +513,7 @@ function StorePanel({ customer, areaName, onClose }: { customer: Customer; areaN
                     something, so it has to be reachable and operable from the
                     keyboard, exactly as the run panel's feed is. */}
                 {receipts.slice(0, shownReceipts).map((receipt) => {
-                  const crew = crewLabel(receipt, crewNames, agentNames);
+                  const agents = agentsLabel(receipt, agentNames);
                   return (
                     <button
                       key={receipt.id}
@@ -612,12 +531,12 @@ function StorePanel({ customer, areaName, onClose }: { customer: Customer; areaN
                           phrasing content, and these are inside one now. */}
                       <span>
                         <span className="ops-feed-store">{receipt.businessDay}</span>
-                        {/* Truck then crew — what carried it and who was aboard,
+                        {/* Truck then agents — what carried it and who was aboard,
                             the two halves of "which trip was this". */}
                         <span className="ops-sub">
                           {formatBusinessTime(receipt.createdAt)}
                           {receipt.truckId && ` · ${truckNames.get(receipt.truckId) ?? 'Truck removed'}`}
-                          {crew && ` · ${crew}`}
+                          {agents && ` · ${agents}`}
                         </span>
                       </span>
                       {/* Same amount-over-tag column as the run panel's feed and
@@ -662,7 +581,7 @@ function StorePanel({ customer, areaName, onClose }: { customer: Customer; areaN
           months of history reads correctly from this side. */}
       <ReceiptDetailPanel
         receipt={openReceipt}
-        crewName={(receipt) => crewLabel(receipt, crewNames, agentNames)}
+        agentsLabel={(receipt) => agentsLabel(receipt, agentNames)}
         onClose={() => setOpenReceiptId(null)}
       />
     </>

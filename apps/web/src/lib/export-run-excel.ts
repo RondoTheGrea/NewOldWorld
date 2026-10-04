@@ -37,6 +37,7 @@ import { buildNameFor, buildOutcomeRows, compareBreadNames } from '@/lib/run-out
 import { type ReturnedBreadType } from '@/lib/returned-bread-types';
 import {
   isVoided,
+  runAgentNames,
   totalCollected,
   totalExpenses,
   totalReceipts,
@@ -254,12 +255,12 @@ function loadHeading(label: string, loadedAt: number | null): string {
 export type ExportRunExcelInput = {
   run: Run;
   /**
-   * Which trip of the day this is for this crew — see `crewTripNumber`. Only
+   * Which trip of the day this is for these agents — see `tripNumber`. Only
    * the file name uses it, and only above 1.
    *
    * Optional, falling back to the phone's own `sequence`. That fallback is the
    * weaker answer of the two: the phone counts per account, so two logins that
-   * both took this crew out today each believe they are trip 1.
+   * both took the same people out today each believe they are trip 1.
    */
   tripNumber?: number;
   receipts: RunReceipt[];
@@ -755,7 +756,7 @@ export async function exportRunToExcel(input: ExportRunExcelInput): Promise<void
     summarySheet.mergeCells(row, 1, row, LastCol);
   }
 
-  summaryBanner(1, `${run.agentGroupName || 'Crew'} — ${run.areaName || 'Area'}`, {
+  summaryBanner(1, `${run.truckName || 'Truck'} — ${runAgentNames(run)}`, {
     bold: true,
     size: 16,
     color: { argb: InkColor },
@@ -764,7 +765,6 @@ export async function exportRunToExcel(input: ExportRunExcelInput): Promise<void
     2,
     [
       run.businessDay ? formatBusinessDayLong(run.businessDay) : 'Unknown day',
-      run.truckName || 'No truck',
       run.status === 'closed' ? 'Day ended' : 'Still out',
     ].join(' · '),
     { color: { argb: MutedColor } },
@@ -790,9 +790,7 @@ export async function exportRunToExcel(input: ExportRunExcelInput): Promise<void
   }
 
   // Run details: which trip this file is, in the same words the run panel
-  // uses. The crew and its members are two different facts and both are worth
-  // stating: the crew is what was assigned, the names are who it held when the
-  // truck went out.
+  // uses.
   summaryHeader(blockTop, DetailCol, 'Run details', '');
   let detailRow = blockTop + 1;
   detailRow = summaryRow(
@@ -801,15 +799,8 @@ export async function exportRunToExcel(input: ExportRunExcelInput): Promise<void
     'Business day',
     run.businessDay ? formatBusinessDayLong(run.businessDay) : '—',
   );
-  detailRow = summaryRow(detailRow, DetailCol, 'Area', run.areaName || '—');
   detailRow = summaryRow(detailRow, DetailCol, 'Truck', run.truckName || '—');
-  detailRow = summaryRow(detailRow, DetailCol, 'Crew', run.agentGroupName || '—');
-  detailRow = summaryRow(
-    detailRow,
-    DetailCol,
-    'Agents',
-    run.agents.length > 0 ? run.agents.map((agent) => agent.name).join(', ') : '—',
-  );
+  detailRow = summaryRow(detailRow, DetailCol, 'Agents', runAgentNames(run));
   detailRow = summaryRow(
     detailRow,
     DetailCol,
@@ -967,7 +958,7 @@ export async function exportRunToExcel(input: ExportRunExcelInput): Promise<void
   noteRow += 1;
   summaryBanner(
     noteRow,
-    'Expenses are recorded by the crew as trip notes. They are not deducted from sales or net above.',
+    'Expenses are recorded by the agents as trip notes. They are not deducted from sales or net above.',
     NoteFont,
   );
   noteRow += 1;
@@ -996,7 +987,7 @@ export async function exportRunToExcel(input: ExportRunExcelInput): Promise<void
 
   const trip = input.tripNumber ?? run.sequence;
   const tripSuffix = trip > 1 ? `_trip${trip}` : '';
-  const fileName = `${run.businessDay}_${safeFilePart(run.agentGroupName || 'crew', 'run')}${tripSuffix}.xlsx`;
+  const fileName = `${run.businessDay}_${safeFilePart(run.truckName || 'truck', 'run')}${tripSuffix}.xlsx`;
 
   await downloadWorkbook(workbook, fileName);
 }

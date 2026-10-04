@@ -5,7 +5,6 @@ import { Badge } from '@/components/badge';
 import { ThemedText } from '@/components/themed-text';
 import { CustomerIcons } from '@/constants/customer-icons';
 import { isNewCustomer, type Customer } from '@/context/customers';
-import { useInventory } from '@/context/inventory';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -15,18 +14,15 @@ type CustomerCardProps = {
 };
 
 // A fixed height, tall enough for the worst case (a long delivery-days list
-// wrapping to 2 lines, plus area, crew and address) with icons stacked above
+// wrapping to 2 lines, plus the address) with icons stacked above
 // their text — that stacking costs more vertical room per row than
 // side-by-side did, which is why this is taller than it looks like it needs
 // to be for a short card.
-const CARD_HEIGHT = 320;
+const CARD_HEIGHT = 220;
 const META_ICON_SIZE = 19;
 
 export function CustomerCard({ customer, onPress }: CustomerCardProps) {
   const theme = useTheme();
-  const inventory = useInventory();
-  const areaName = inventory.areas.find((a) => a.id === customer.areaId)?.name;
-  const crewName = inventory.agentGroups.find((g) => g.id === customer.agentGroupId)?.name;
   const deliveryLabel =
     customer.deliveryDays.length > 0 ? customer.deliveryDays.join(', ') : 'No delivery days set';
 
@@ -54,8 +50,6 @@ export function CustomerCard({ customer, onPress }: CustomerCardProps) {
 
       <View style={styles.meta}>
         <MetaRow icon={CustomerIcons.deliveryDays} text={deliveryLabel} lines={2} />
-        {!!areaName && <MetaRow icon={CustomerIcons.area} text={areaName} lines={1} />}
-        {!!crewName && <MetaRow icon={CustomerIcons.crew} text={crewName} lines={1} />}
         {!!customer.address && <MetaRow icon={CustomerIcons.address} text={customer.address} lines={1} />}
       </View>
     </Pressable>

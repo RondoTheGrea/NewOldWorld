@@ -12,38 +12,10 @@ export type CustomerInput = {
   storeName: string;
   name: string;
   deliveryDays: Weekday[];
-  /**
-   * References an `areas` doc in Firestore (see context/inventory.tsx) — not a
-   * free-text name.
-   *
-   * This and `agentGroupId` are the store's *placement*, and the customer form
-   * **requires both on every save it makes** — a new store and an edit alike.
-   * A store filed under neither is invisible to the Customers tab's crew filter
-   * and to any grouping the server does later, so the moment to ask is while
-   * somebody is standing in front of the shop.
-   *
-   * Both stay `string | null` all the same, and nothing outside the form
-   * rejects a null. Stores already in Firestore from before this rule have one
-   * or both missing, and they are **kept exactly as they are** — no rule, no
-   * migration and no sync path rewrites or hides one. The requirement is about
-   * what a *form* may submit, not what the database may hold. In practice that
-   * makes opening one of those older stores for editing the moment it gets
-   * filled in: the form asks for the missing area or crew before it will save
-   * anything else about that store. Deliberately a one-way ratchet — the form
-   * has no way to *clear* either field, so a store can only gain a placement.
-   *
-   * The known cost, accepted on the owner's call: both pickers are filled from
-   * **downloaded** catalogs, so a phone that has never pulled them has nothing
-   * to choose from, and on that phone an older store can't be edited until it
-   * does. Hence the empty-list wording on both pickers points at the depot
-   * rather than saying "nothing here yet".
-   */
-  areaId: string | null;
-  /**
-   * References an `agentGroups` doc in Firestore — the crew this store is
-   * assigned to. Required on every save, exactly like `areaId`; see there.
-   */
-  agentGroupId: string | null;
+  // A store used to carry an `areaId` and an `agentGroupId` (crew) too. Both
+  // were removed on the owner's call. Their old SQLite columns are left in
+  // place and simply no longer read or written, and copies already on the
+  // server keep the fields untouched — nothing reads them any more.
   address: string;
   phone: string;
   description: string;
@@ -116,10 +88,6 @@ export const CustomerFieldLimits = {
   address: 200,
   phone: 32,
   description: 500,
-  /** A Firestore document id — this is a sanity bound, not a user-facing limit. */
-  areaId: 64,
-  /** Same sanity bound as areaId — also a Firestore document id, not typed text. */
-  agentGroupId: 64,
 } as const;
 
 /**
@@ -134,17 +102,10 @@ export const CustomerFieldLimits = {
  * Sun→Sat instead of in whatever order they were tapped.
  */
 export function sanitizeCustomerInput(input: CustomerInput): CustomerInput {
-  const areaId = input.areaId ? sanitizeSingleLine(input.areaId, CustomerFieldLimits.areaId) : '';
-  const agentGroupId = input.agentGroupId
-    ? sanitizeSingleLine(input.agentGroupId, CustomerFieldLimits.agentGroupId)
-    : '';
-
   return {
     storeName: sanitizeSingleLine(input.storeName, CustomerFieldLimits.storeName),
     name: sanitizeSingleLine(input.name, CustomerFieldLimits.name),
     deliveryDays: WEEKDAYS.filter((day) => input.deliveryDays.includes(day)),
-    areaId: areaId || null,
-    agentGroupId: agentGroupId || null,
     address: sanitizeMultiline(input.address, CustomerFieldLimits.address),
     phone: sanitizeSingleLine(input.phone, CustomerFieldLimits.phone),
     description: sanitizeMultiline(input.description, CustomerFieldLimits.description),

@@ -420,7 +420,7 @@ const SequenceProbeTimeoutMs = 6_000;
 /**
  * How many numbers are tried before the phone gives up and takes the last one.
  *
- * A crew goes out once or twice a day, so reaching even three is unusual and
+ * A truck goes out once or twice a day, so reaching even three is unusual and
  * ten is a fault. The cap exists so a strange state can't turn finishing setup
  * into an unbounded run of round trips.
  */
@@ -440,7 +440,7 @@ export type RunSequenceProbe = {
 /**
  * The first run number of the day that isn't already taken in Firestore.
  *
- * The sequence suffix (`_2`, `_3` …) is what lets one account take one crew out
+ * The sequence suffix (`_2`, `_3` …) is what lets one account take the same people out
  * twice in a day without the second trip landing on the first trip's document
  * and overwriting its header and its manifest. Counting it from the phone's own
  * run log answers that correctly whenever the phone remembers the morning — and
@@ -452,11 +452,11 @@ export type RunSequenceProbe = {
  *   segment of the id can't separate because it is the same account — each
  *   count only their own trips.
  *
- * It also settles the one collision the crew segment can't, now that the
- * segment is the crew's *name* rather than its id: two crews that share a name
- * (or two names that flatten to one segment) compute the same base id, and the
- * second of them is moved onto the next free number here exactly as a crew's
- * own second trip is.
+ * It also settles the one collision the agents segment can't, since that
+ * segment is made of *names* rather than ids: two agents who share a name (or
+ * two names that flatten to one segment) compute the same base id, and the
+ * second run is moved onto the next free number here exactly as a second trip
+ * by the same people is.
  *
  * Both are exactly the collision the suffix exists to prevent, and both are
  * quiet: the child documents keep their phone-minted ids and survive, so
@@ -484,7 +484,7 @@ export type RunSequenceProbe = {
  * degraded one.
  */
 export async function findFreeRunSequence(
-  agentGroupName: string,
+  agentNames: string[],
   account: string,
   at: number,
   from: number
@@ -492,7 +492,7 @@ export async function findFreeRunSequence(
   let sequence = Math.max(1, Math.floor(from) || 1);
 
   for (let probe = 0; probe < MaxSequenceProbes; probe += 1) {
-    const runId = composeRunId(agentGroupName, account, at, sequence);
+    const runId = composeRunId(agentNames, account, at, sequence);
 
     try {
       const snapshot = await withTimeout(
@@ -508,7 +508,7 @@ export async function findFreeRunSequence(
       // it was about to open, the number it settled on and the number the phone
       // asked for are enough to tell a depot with no signal apart from a run
       // that really is being numbered wrong.
-      logError('sync.runSequence', error, { runId, agentGroupName, account, sequence, askedFrom: from });
+      logError('sync.runSequence', error, { runId, agentNames, account, sequence, askedFrom: from });
       return { sequence, confirmed: false };
     }
 
@@ -539,14 +539,10 @@ export async function uploadRunHeader(ctx: RunContext, timeoutMs: number = CallT
       schemaVersion: SchemaVersion,
       runId: ctx.runId,
       businessDay: ctx.businessDay,
-      // Which trip of the day this is: 1, then 2 if the crew goes back out.
+      // Which trip of the day this is: 1, then 2 if the same people go back out.
       sequence: ctx.sequence,
-      areaId: ctx.areaId,
-      areaName: ctx.areaName,
       truckId: ctx.truckId,
       truckName: ctx.truckName,
-      agentGroupId: ctx.agentGroupId,
-      agentGroupName: ctx.agentGroupName,
       agentIds: ctx.agentIds,
       agents: ctx.agents,
       createdByUid: ctx.createdByUid,
@@ -798,21 +794,19 @@ export async function uploadReceipt(stamp: RunStamp, receipt: PendingReceipt): P
     total: receipt.total,
     paymentMethod: receipt.paymentMethod,
     amountPaid: receipt.amountPaid,
-    // The crew snapshotted onto the receipt when it was finalized, sent as its
-    // own field rather than left to be resolved from the run.
-    //
-    // The parent run already names a crew, and for a receipt uploaded today the
-    // two agree — but they answer different questions. `agentGroupName` on the
-    // run is what the crew is *called*; this is what was printed on the paper
-    // the customer is holding, which a later rename must never contradict. It
-    // is also on the child document for the same reason every stamp field is:
-    // uploads land in whatever order the signal allows, and the store history
-    // (a collection-group query, see firestore.rules) reads receipts without
-    // ever opening their runs.
+    // Who was on the truck, snapshotted onto the receipt when it was finalized
+    // and sent as its own field rather than left to be resolved from the run:
+    // this is what was printed on the paper the customer is holding, which a
+    // later rename must never contradict. It is also on the child document for
+    // the same reason every stamp field is — the store history (a
+    // collection-group query, see firestore.rules) reads receipts without ever
+    // opening their runs.
     //
     // Null on every receipt finalized before it was recorded — nothing is
-    // backfilled, so the dashboard has to treat it as optional.
-    agentGroupName: receipt.agentGroupName,
+    // backfilled, so the dashboard has to treat it as optional. (Those older
+    // receipts carry `agentGroupName` — the crew, from before crews were
+    // removed — instead.)
+    agentNames: receipt.agentNames,
     // When the driver voided it, or null. A void re-queues the receipt (see
     // markVoided in lib/receipt-db.ts), so a receipt the server already has is
     // sent again with this filled in — the dashboard leaves any receipt carrying
@@ -886,8 +880,6 @@ export async function uploadCustomer(uid: string, customer: PendingCustomer): Pr
       storeName: customer.storeName,
       name: customer.name,
       deliveryDays: customer.deliveryDays,
-      areaId: customer.areaId,
-      agentGroupId: customer.agentGroupId,
       address: customer.address,
       phone: customer.phone,
       description: customer.description,
@@ -905,9 +897,7 @@ export async function uploadCustomer(uid: string, customer: PendingCustomer): Pr
 function stampFields(stamp: RunStamp) {
   return {
     runId: stamp.runId,
-    areaId: stamp.areaId,
     truckId: stamp.truckId,
-    agentGroupId: stamp.agentGroupId,
     agentIds: stamp.agentIds,
     createdByUid: stamp.createdByUid,
   };
@@ -976,8 +966,6 @@ export async function pullCustomers(since: number, max: number): Promise<Pending
       storeName: (data.storeName as string) ?? '',
       name: (data.name as string) ?? '',
       deliveryDays: Array.isArray(data.deliveryDays) ? (data.deliveryDays as Weekday[]) : [],
-      areaId: (data.areaId as string | null) ?? null,
-      agentGroupId: (data.agentGroupId as string | null) ?? null,
       address: (data.address as string) ?? '',
       phone: (data.phone as string) ?? '',
       description: (data.description as string) ?? '',

@@ -10,7 +10,7 @@
 // FIRESTORE_EMULATOR_HOST env var (set below) and — importantly — bypasses
 // firestore.rules entirely. That's fine here: rules only govern the app's
 // client SDK, and this script's job is exactly the "seeded server-side"
-// escape hatch firestore.rules documents for the /areas collection.
+// escape hatch firestore.rules documents for the dashboard-owned lists.
 
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -27,15 +27,10 @@ process.env.GCLOUD_PROJECT = PROJECT_ID;
 // what every uploaded run is grouped by, so they have to be stable and shared,
 // not typed into each phone (see docs/sync-design.md).
 //
-// Areas and trucks are the plain `{ name }` shape. Agents are not: a truck is
-// assigned a whole **crew**, so every agent belongs to exactly one group and
-// carries its `groupId`.
-const AREAS = ['Cainta', 'Cubao', 'Pasig'];
+// Trucks and agents are both the plain `{ name }` shape — the phone ticks each
+// agent aboard one by one. (Areas and crews were removed.)
 const TRUCKS = ['Truck 1', 'Truck 2', 'Truck 3'];
-const AGENT_GROUPS = [
-  { name: 'Crew A', agents: ['Juan Dela Cruz', 'Maria Santos'] },
-  { name: 'Crew B', agents: ['Pedro Reyes', 'Ana Bautista'] },
-];
+const AGENTS = ['Juan Dela Cruz', 'Maria Santos', 'Pedro Reyes', 'Ana Bautista'];
 
 function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -73,26 +68,10 @@ async function main() {
   // `order` is written here too: the dashboard backfills a missing one on
   // read, but seeding it means a fresh emulator shows the lists in the order
   // they're written above rather than alphabetically.
-  const seedAgentGroups = () =>
-    Promise.all(
-      AGENT_GROUPS.flatMap((group, groupOrder) => {
-        const groupId = slugify(group.name);
-        return [
-          db.collection('agentGroups').doc(groupId).set({ name: group.name, order: groupOrder }, { merge: true }),
-          ...group.agents.map((name, order) =>
-            db.collection('agents').doc(slugify(name)).set({ name, order, groupId }, { merge: true }),
-          ),
-        ];
-      }),
-    );
+  await Promise.all([seedNamed('trucks', TRUCKS), seedNamed('agents', AGENTS)]);
 
-  await Promise.all([seedNamed('areas', AREAS), seedNamed('trucks', TRUCKS), seedAgentGroups()]);
-
-  console.log(`[seed] areas ready: ${AREAS.join(', ')}`);
   console.log(`[seed] trucks ready: ${TRUCKS.join(', ')}`);
-  for (const group of AGENT_GROUPS) {
-    console.log(`[seed] crew ready: ${group.name} — ${group.agents.join(', ')}`);
-  }
+  console.log(`[seed] agents ready: ${AGENTS.join(', ')}`);
 
   await db.collection('settings').doc('business').set(
     {

@@ -42,8 +42,8 @@ export function SlideToConfirm({ label, busyLabel, busy = false, tone = 'default
   const theme = useTheme();
   const fillColor = tone === 'danger' ? theme.danger : theme.text;
 
-  // Lazy useState rather than useRef for the same reason as scope-toast.tsx:
-  // these are never read during render, only handed to Animated.
+  // Lazy useState rather than useRef: an Animated.Value is created once and
+  // never read during render, only handed to Animated.
   const [x] = useState(() => new Animated.Value(0));
   const [trackWidth, setTrackWidth] = useState(0);
 

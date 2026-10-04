@@ -5,7 +5,7 @@ import { db } from '@/lib/firebase';
 /**
  * Stores, as the dashboard sees them.
  *
- * Unlike bread types, areas and trucks, **customers are not dashboard-owned**.
+ * Unlike bread types, trucks and agents, **customers are not dashboard-owned**.
  * Every phone creates and edits them and every phone pulls them back down —
  * a store belongs to the business, not to the truck that happened to meet it.
  * The dashboard is a reader here: this file has no writes, and adding one would
@@ -29,9 +29,6 @@ export type Customer = {
   /** The contact person at the store, not the store itself. */
   name: string;
   deliveryDays: Weekday[];
-  areaId: string | null;
-  /** References an `agentGroups` doc — the crew this store is assigned to, or null. Optional on the phone. */
-  agentGroupId: string | null;
   address: string;
   phone: string;
   description: string;
@@ -86,8 +83,6 @@ function readCustomers(docs: { id: string; data: () => Record<string, unknown> }
         deliveryDays: Array.isArray(data.deliveryDays)
           ? (data.deliveryDays as Weekday[]).filter((day) => WEEKDAYS.includes(day))
           : [],
-        areaId: (data.areaId as string | null) || null,
-        agentGroupId: (data.agentGroupId as string | null) || null,
         address: (data.address as string) ?? '',
         phone: (data.phone as string) ?? '',
         description: (data.description as string) ?? '',

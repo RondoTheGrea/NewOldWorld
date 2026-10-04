@@ -12,6 +12,7 @@ import {
   fetchRunsForRange,
   isVoided,
   receiptCollected,
+  runAgentNames,
   totalCollected,
   totalExpenses,
   totalStock,
@@ -52,7 +53,7 @@ import {
  * **Every loaf figure in this file is the stock ledger's**, at every level:
  * loaded, sold and left on the truck are one arithmetic — `totalStock` builds
  * them so that loaded − sold = left exactly — and a run belongs to exactly one
- * day, one crew and one area, so the same three numbers roll up to every sheet
+ * day and one truck, so the same three numbers roll up to every sheet
  * and still add to the same total. Taking "sold" off the receipt lines instead
  * would read just as well on one sheet and stop the Days sheet totalling to the
  * Summary.
@@ -73,7 +74,7 @@ import {
  *
  * ## "Stores" is a set everywhere, and that is the whole definition
  *
- * Every store count this file produces — a day's, a crew's, an area's, a run's,
+ * Every store count this file produces — a day's, a truck's, a run's,
  * a bread's, and the period total — is the size of a `Set` of `customerId`. So a
  * shop served five times counts once, a receipt naming no shop counts nowhere,
  * and **no store count in this file may ever be added to another**: two trucks
@@ -83,7 +84,7 @@ import {
  *
  * ## A few figures are folded that no sheet currently prints
  *
- * `days` and `counterparts` on a group row, `daysWithRuns` and `trucks` on the
+ * `days` on a group row, `daysWithRuns` and `trucks` on the
  * totals, `daysSince` on a store, `sales` / `returnsValue` on a bread row, and
  * `expenseGroups` (the Expenses sheet's old grouped table) are all still
  * computed, and the workbook stopped laying any of them out in
@@ -112,7 +113,7 @@ export const SlowRunCount = 150;
  */
 const RunConcurrency = 6;
 
-/** Stands in for "this run recorded no crew" (or no area), as the Trends tab's `NoneKey` does. */
+/** Stands in for "this run recorded no truck", as the Trends tab's `NoneKey` does. */
 const NoneKey = '__none__';
 
 export type PeriodProgress = { done: number; total: number };
@@ -163,20 +164,16 @@ export type PeriodDayRow = StockFigures & {
   returnedLoaves: number;
 };
 
-/** A crew's or an area's slice of the period — one shape, two sheets. */
+/**
+ * A truck's slice of the period. (There used to be crew and area slices of this
+ * same shape; both dimensions were removed on the owner's call.)
+ */
 export type PeriodGroupRow = StockFigures & {
   id: string;
   name: string;
   runs: number;
-  /** Distinct business days this crew (or area) had a truck out on. */
+  /** Distinct business days this truck went out on. */
   days: number;
-  /**
-   * How many of the *other* dimension this row met: areas worked, for a crew;
-   * crews that worked it, for an area. Symmetric on purpose — "Crew A covered
-   * three rounds" and "Cainta was worked by two crews" are the same fact from
-   * either end, and the docs call the second one the comparison worth making.
-   */
-  counterparts: number;
   receipts: number;
   stores: number;
   sales: number;
@@ -205,7 +202,6 @@ export type PeriodStoreRow = {
   name: string;
   contact: string;
   phone: string;
-  area: string;
   receipts: number;
   loaves: number;
   sales: number;
@@ -232,7 +228,8 @@ export type PeriodExpenseGroup = { title: string; count: number; total: number }
 /** One expense, with enough of its run beside it to be chased up. */
 export type PeriodExpenseItem = {
   day: string;
-  crew: string;
+  /** Who was on the truck — `runAgentNames`. */
+  agents: string;
   truck: string;
   title: string;
   notes: string;
@@ -253,7 +250,8 @@ export type PeriodExpenseItem = {
  */
 export type PeriodReceiptItem = {
   day: string;
-  crew: string;
+  /** Who delivered it — the names the receipt itself carries, else the run's. */
+  agents: string;
   truck: string;
   store: string;
   paymentMethod: string | null;
@@ -272,9 +270,7 @@ export type PeriodReceiptItem = {
 export type PeriodTotals = StockFigures & {
   runs: number;
   daysWithRuns: number;
-  crews: number;
   trucks: number;
-  areas: number;
   receipts: number;
   stores: number;
   sales: number;
@@ -292,8 +288,7 @@ export type PeriodSummary = {
   /** Every calendar day in the range, empty ones included. */
   days: PeriodDayRow[];
   runs: PeriodRunRow[];
-  crews: PeriodGroupRow[];
-  areas: PeriodGroupRow[];
+  trucks: PeriodGroupRow[];
   bread: PeriodBreadRow[];
   stores: PeriodStoreRow[];
   collected: CollectedTotals;
@@ -365,18 +360,15 @@ export async function countRunsInRange(from: string, to: string): Promise<number
 export async function buildPeriodSummary({
   from,
   to,
-  agentGroups,
-  areas,
+  trucks,
   breadTypes,
   returnedBreadTypes,
   onProgress,
 }: {
   from: string;
   to: string;
-  /** The crews reference list, for putting the crew rows in the dashboard's own order. */
-  agentGroups: NamedRecord[];
-  /** The Areas reference list, for naming the round a store sits on and ordering the area rows. */
-  areas: NamedRecord[];
+  /** The Trucks reference list, for putting the truck rows in the dashboard's own order. */
+  trucks: NamedRecord[];
   breadTypes: BreadType[];
   returnedBreadTypes: ReturnedBreadType[];
   onProgress?: (progress: PeriodProgress) => void;
@@ -384,8 +376,8 @@ export async function buildPeriodSummary({
   const runs = await fetchRunsForRange(from, to);
   if (runs.length > MaxRunsPerExport) throw new PeriodTooLargeError(runs.length);
 
-  // The store catalog is wanted for the phone number and the round on the
-  // Stores sheet, neither of which is on a receipt. It is an enrichment, not a
+  // The store catalog is wanted for the phone number on the Stores sheet,
+  // which is not on a receipt. It is an enrichment, not a
   // source: if it fails, every store still has its name, its money and its
   // dates from the receipts themselves, so the export goes ahead without it.
   let customers: Customer[] = [];
@@ -404,8 +396,7 @@ export async function buildPeriodSummary({
     to,
     loaded,
     customers,
-    agentGroups,
-    areas,
+    trucks,
     breadTypes,
     returnedBreadTypes,
     storeDetailsMissing,
@@ -527,16 +518,15 @@ function upsert<K, V>(map: Map<K, V>, key: K, create: () => V): V {
   return made;
 }
 
-/** A crew or an area, mid-fold. */
-type GroupAccumulator = { name: string; bucket: Bucket; days: Set<string>; others: Set<string> };
+/** A truck, mid-fold. */
+type GroupAccumulator = { name: string; bucket: Bucket; days: Set<string> };
 
 function foldPeriod({
   from,
   to,
   loaded,
   customers,
-  agentGroups,
-  areas,
+  trucks,
   breadTypes,
   returnedBreadTypes,
   storeDetailsMissing,
@@ -545,8 +535,7 @@ function foldPeriod({
   to: string;
   loaded: LoadedRun[];
   customers: Customer[];
-  agentGroups: NamedRecord[];
-  areas: NamedRecord[];
+  trucks: NamedRecord[];
   breadTypes: BreadType[];
   returnedBreadTypes: ReturnedBreadType[];
   storeDetailsMissing: boolean;
@@ -565,9 +554,7 @@ function foldPeriod({
     dayBuckets.set(shiftBusinessDay(from, offset), newBucket());
   }
 
-  const crewBuckets = new Map<string, GroupAccumulator>();
-  const areaBuckets = new Map<string, GroupAccumulator>();
-  const trucks = new Set<string>();
+  const truckBuckets = new Map<string, GroupAccumulator>();
   const period = newBucket();
 
   const runRows: PeriodRunRow[] = [];
@@ -599,7 +586,7 @@ function foldPeriod({
     for (const receipt of entry.receipts) {
       receiptItems.push({
         day: receipt.businessDay || run.businessDay,
-        crew: receipt.agentGroupName || run.agentGroupName || 'No crew recorded',
+        agents: receipt.agentNames || runAgentNames(run),
         truck: run.truckName || 'Unnamed truck',
         store: receipt.customerName || 'Unnamed store',
         paymentMethod: receipt.paymentMethod,
@@ -633,18 +620,10 @@ function foldPeriod({
       for (const receipt of receipts) addReceipt(day, receipt);
     }
 
-    const crewId = run.agentGroupId || NoneKey;
-    const areaId = run.areaId || NoneKey;
-    const crew = upsert(crewBuckets, crewId, () => newGroup(run.agentGroupName || 'No crew recorded'));
-    const area = upsert(areaBuckets, areaId, () => newGroup(run.areaName || 'No area'));
-    for (const side of [crew, area]) {
-      addRun(side.bucket, stock, spend.total);
-      side.days.add(run.businessDay);
-      for (const receipt of receipts) addReceipt(side.bucket, receipt);
-    }
-    crew.others.add(areaId);
-    area.others.add(crewId);
-    if (run.truckId) trucks.add(run.truckId);
+    const truck = upsert(truckBuckets, run.truckId || NoneKey, () => newGroup(run.truckName || 'No truck recorded'));
+    addRun(truck.bucket, stock, spend.total);
+    truck.days.add(run.businessDay);
+    for (const receipt of receipts) addReceipt(truck.bucket, receipt);
 
     addRun(period, stock, spend.total);
     for (const receipt of receipts) addReceipt(period, receipt);
@@ -653,7 +632,7 @@ function foldPeriod({
       if (expense.deleted) continue;
       expenseItems.push({
         day: run.businessDay,
-        crew: run.agentGroupName || 'No crew recorded',
+        agents: runAgentNames(run),
         truck: run.truckName || 'Unnamed truck',
         title: expense.title || 'Untitled',
         notes: expense.notes,
@@ -706,10 +685,9 @@ function foldPeriod({
     // Newest run first — a period is read from its most recent end, the same
     // way the board reads a day.
     runs: runRows.sort((a, b) => b.run.startedAt - a.run.startedAt),
-    crews: toGroupRows(crewBuckets, agentGroups),
-    areas: toGroupRows(areaBuckets, areas),
+    trucks: toGroupRows(truckBuckets, trucks),
     bread: toBreadRows(breadRows, breadTypes, returnedBreadTypes),
-    stores: toStoreRows(storeRows, customers, areas, to),
+    stores: toStoreRows(storeRows, customers, to),
     collected: totalCollected(allReceipts),
     expenseGroups: groupExpenses(expenseItems),
     expenseItems: expenseItems.sort((a, b) => a.createdAt - b.createdAt),
@@ -717,9 +695,7 @@ function foldPeriod({
     totals: {
       ...bucketFigures(period),
       daysWithRuns: [...dayBuckets.values()].filter((bucket) => bucket.runs > 0).length,
-      crews: crewBuckets.size,
-      trucks: trucks.size,
-      areas: areaBuckets.size,
+      trucks: truckBuckets.size,
     },
     unreadRuns: loaded.filter((entry) => !entry.read).length,
     storeDetailsMissing,
@@ -727,7 +703,7 @@ function foldPeriod({
 }
 
 function newGroup(name: string): GroupAccumulator {
-  return { name, bucket: newBucket(), days: new Set<string>(), others: new Set<string>() };
+  return { name, bucket: newBucket(), days: new Set<string>() };
 }
 
 /**
@@ -749,7 +725,6 @@ function foldStore(rows: Map<string, PeriodStoreRow>, receipt: RunReceipt) {
     name: receipt.customerName || 'Unnamed store',
     contact: receipt.customerContactName,
     phone: '',
-    area: '',
     receipts: 0,
     loaves: 0,
     sales: 0,
@@ -779,18 +754,17 @@ function foldStore(rows: Map<string, PeriodStoreRow>, receipt: RunReceipt) {
 }
 
 /**
- * The crews (or the areas) in **the order the dashboard lists them** — the
- * position a manager dragged each one to on the reference lists page, the same
- * rule the Bread sheet follows. They were biggest-net-first until September
- * 2026, when the owner asked for the dashboard's order: a reader who knows where
- * a crew sits in that list finds it in the same place here, month after month,
- * instead of hunting for it in a ranking that reshuffles every period.
+ * The trucks in **the order the dashboard lists them** — the position a
+ * manager dragged each one to on the reference lists page, the same rule the
+ * Bread sheet follows: a reader who knows where a truck sits in that list finds
+ * it in the same place here, month after month, instead of hunting for it in a
+ * ranking that reshuffles every period.
  *
- * Matched on **id**, never on name, so a crew renamed since still sorts into its
- * place. Two kinds of row have no place in the list, and go after every one that
- * does: a crew or area **deleted since** the run (by name, among themselves),
- * and last of all the "No crew recorded" / "No area" row. If the list itself
- * could not be read, everything falls to name order rather than failing.
+ * Matched on **id**, never on name, so a truck renamed since still sorts into
+ * its place. Two kinds of row have no place in the list, and go after every one
+ * that does: a truck **deleted since** the run (by name, among themselves), and
+ * last of all the "No truck recorded" row. If the list itself could not be
+ * read, everything falls to name order rather than failing.
  */
 function toGroupRows(buckets: Map<string, GroupAccumulator>, catalog: NamedRecord[]): PeriodGroupRow[] {
   const position = new Map(catalog.map((record) => [record.id, record.order]));
@@ -800,7 +774,6 @@ function toGroupRows(buckets: Map<string, GroupAccumulator>, catalog: NamedRecor
       id,
       name: entry.name,
       days: entry.days.size,
-      counterparts: entry.others.size,
       ...bucketFigures(entry.bucket),
     }))
     .sort(
@@ -859,11 +832,9 @@ function toBreadRows(
 function toStoreRows(
   rows: Map<string, PeriodStoreRow>,
   customers: Customer[],
-  areas: NamedRecord[],
   to: string,
 ): PeriodStoreRow[] {
   const byId = new Map(customers.map((customer) => [customer.id, customer]));
-  const areaNames = new Map(areas.map((area) => [area.id, area.name]));
   return [...rows.values()]
     .map((row) => {
       const customer = byId.get(row.id);
@@ -873,7 +844,6 @@ function toStoreRows(
         name: customer?.storeName || row.name,
         contact: customer?.name || row.contact,
         phone: customer?.phone ?? '',
-        area: (customer?.areaId ? areaNames.get(customer.areaId) : '') ?? '',
         net,
         owed: net - row.collected,
         daysSince: Math.max(0, daySpan(row.lastDay, to) - 1),
@@ -887,7 +857,7 @@ function toStoreRows(
  *
  * Titles are matched **word for word**, the same rule the Outcome table joins
  * bread names by: "Fuel" and "fuel " are two rows, which is a visible, fixable
- * thing, where quietly folding them together would file one crew's spending
+ * thing, where quietly folding them together would file one truck's spending
  * under another's heading.
  */
 function groupExpenses(items: PeriodExpenseItem[]): PeriodExpenseGroup[] {
