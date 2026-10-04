@@ -34,8 +34,12 @@ type ReceiptDetailModalProps = {
   /** Present to show the modal; null closes it. */
   receipt: ReceiptSummary | null;
   onClose: () => void;
-  /** Only ever called for a draft — opens ReceiptFormModal pre-filled to edit it. */
-  onEdit: (detail: ReceiptDetail) => void;
+  /**
+   * Only ever called for a draft — opens ReceiptFormModal pre-filled to edit it.
+   * Optional because the customer profile's Purchase History lists finalized
+   * receipts only, so it never shows the Edit button.
+   */
+  onEdit?: (detail: ReceiptDetail) => void;
 };
 
 
@@ -56,7 +60,7 @@ function ReceiptDetailBody({
 }: {
   summary: ReceiptSummary;
   onClose: () => void;
-  onEdit: (detail: ReceiptDetail) => void;
+  onEdit?: (detail: ReceiptDetail) => void;
 }) {
   const theme = useTheme();
   const { getReceiptDetail, deleteDraft, finalize, voidReceipt, getPaymentProof, setPaymentProof } = useReceipts();
@@ -457,7 +461,7 @@ function ReceiptDetailBody({
                     </ThemedText>
                   </Pressable>
                   <Pressable
-                    onPress={() => detail && onEdit(detail)}
+                    onPress={() => detail && onEdit?.(detail)}
                     disabled={!detail}
                     style={({ pressed }) => [
                       styles.button,

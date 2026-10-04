@@ -42,6 +42,14 @@ export type ConfirmDialogProps = {
    * something that can't be undone; `confirmLabel` becomes the track's text.
    */
   slideToConfirm?: boolean;
+  /**
+   * Flips which button is the big one: Cancel becomes the filled green button
+   * on the right, and Confirm an outline on the left in the tone's colour. For
+   * questions where *not* going ahead is the answer we want to be easy — "Keep
+   * counting" over "Close and lose it". What each button does is unchanged, so
+   * a tap outside still answers Cancel, the safe way.
+   */
+  preferCancel?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 };
@@ -59,6 +67,7 @@ export function ConfirmDialog({
   busy = false,
   busyLabel = 'Working…',
   slideToConfirm = false,
+  preferCancel = false,
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) {
@@ -110,6 +119,34 @@ export function ConfirmDialog({
                 </ThemedText>
               </Pressable>
             </View>
+          ) : preferCancel ? (
+          <View style={styles.actions}>
+            <Pressable
+              onPress={onConfirm}
+              disabled={busy}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.button,
+                { borderColor: theme.border, opacity: busy ? 0.4 : pressed ? 0.6 : 1 },
+              ]}>
+              <ThemedText type="smallBold" style={{ color: confirmColor }}>
+                {busy ? busyLabel : confirmLabel}
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={onCancel}
+              disabled={busy}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.button,
+                styles.confirmButton,
+                { backgroundColor: theme.success, opacity: busy ? 0.6 : pressed ? 0.85 : 1 },
+              ]}>
+              <ThemedText type="smallBold" style={{ color: theme.background }}>
+                {cancelLabel}
+              </ThemedText>
+            </Pressable>
+          </View>
           ) : (
           <View style={styles.actions}>
             <Pressable

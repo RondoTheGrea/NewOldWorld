@@ -9,8 +9,11 @@ import { Spacing } from '@/constants/theme';
 import { useInventory } from '@/context/inventory';
 import { useReceipts } from '@/context/receipts';
 import {
+  MissingCloseoutError,
   MissingRunDetailsError,
   OpenDraftError,
+  findMissingCloseout,
+  missingCloseoutMessage,
   describeSyncCounts,
   openDraftMessage,
   syncCountParts,
@@ -42,7 +45,7 @@ import { notifyFailure, runWithRetry } from '@/lib/retry';
  */
 export function EndDayCard() {
   const theme = useTheme();
-  const { setup } = useInventory();
+  const { setup, runId } = useInventory();
   const { pending, blocked, syncing, lastSyncedAt, syncNow, endTheDay } = useSync();
   const { findDraftReceipt, returnVoidedStock } = useReceipts();
   const [closing, setClosing] = useState(false);
@@ -69,6 +72,19 @@ export function EndDayCard() {
       }
     } catch (error) {
       logError('sync.endTheDay.draftCheck', error);
+    }
+
+    // Same shape as the draft check, for the owner's rule that a day needs at
+    // least one expense and a saved breakdown. A failure to look is ignored
+    // here for the same reason; endTheDay checks again.
+    try {
+      const missing = runId ? await findMissingCloseout(runId) : null;
+      if (missing) {
+        notifyFailure('Breakdown & Expenses first', missingCloseoutMessage(missing));
+        return;
+      }
+    } catch (error) {
+      logError('sync.endTheDay.closeoutCheck', error);
     }
 
     setConfirming(true);
@@ -108,7 +124,9 @@ export function EndDayCard() {
       // only read when the app starts, so retrying in this session re-reads the
       // same empty state and fails identically.
       retryable: (error) =>
-        !(error instanceof OpenDraftError) && !(error instanceof MissingRunDetailsError),
+        !(error instanceof OpenDraftError) &&
+        !(error instanceof MissingRunDetailsError) &&
+        !(error instanceof MissingCloseoutError),
     });
     setClosing(false);
 

@@ -81,6 +81,50 @@ export function openDraftMessage(customerName: string): string {
   return `There’s still a draft receipt for ${customerName}. Finalize it or delete it in the Receipts tab, then end the day.`;
 }
 
+/** What "End the Day" still needs from the Breakdown & Expenses card. */
+export type MissingCloseout = { expense: boolean; breakdown: boolean };
+
+/**
+ * Whether this run is missing an expense, a saved breakdown, or both — `null`
+ * when it has everything. Shared by the check before the "End the day?"
+ * confirmation and the backstop inside `endTheDay`, so they can't disagree.
+ *
+ * Reads the databases directly rather than the Expenses context: this file
+ * sits outside that provider, and the database is the authority anyway.
+ */
+export async function findMissingCloseout(runId: string): Promise<MissingCloseout | null> {
+  const [hasExpense, cashCount] = await Promise.all([
+    expenseDb.runHasExpense(runId),
+    expenseDb.loadCashCountForRun(runId),
+  ]);
+  const missing = { expense: !hasExpense, breakdown: cashCount === null };
+  return missing.expense || missing.breakdown ? missing : null;
+}
+
+/** The one wording for it — names the card and the tabs the driver has to tap. */
+export function missingCloseoutMessage(missing: MissingCloseout): string {
+  const needs =
+    missing.expense && missing.breakdown
+      ? 'record at least one expense and save the breakdown'
+      : missing.expense
+        ? 'record at least one expense'
+        : 'save the breakdown';
+  return `Before ending the day, ${needs} on the Breakdown & Expenses card. If nothing was spent, record an expense of ₱0.`;
+}
+
+/**
+ * "End the Day" refusing because the Breakdown & Expenses card isn't filled in.
+ *
+ * Like an open draft, this is a rule rather than a glitch — "Try again" can't
+ * fix it, so the end-day card reports it once with an OK.
+ */
+export class MissingCloseoutError extends Error {
+  constructor(missing: MissingCloseout) {
+    super(missingCloseoutMessage(missing));
+    this.name = 'MissingCloseoutError';
+  }
+}
+
 /**
  * "End the Day" refusing because a receipt is still a draft.
  *
@@ -158,6 +202,8 @@ export type SyncPending = {
   receipts: number;
   stockEntries: number;
   expenses: number;
+  /** The run's cash breakdown — one per run, re-sent whenever it is re-saved. */
+  cashCounts: number;
   paymentProofs: number;
   customers: number;
   total: number;
@@ -167,6 +213,7 @@ const NoPending: SyncPending = {
   receipts: 0,
   stockEntries: 0,
   expenses: 0,
+  cashCounts: 0,
   paymentProofs: 0,
   customers: 0,
   total: 0,
@@ -186,6 +233,8 @@ export type SyncBlocked = {
   receipts: number;
   stockEntries: number;
   expenses: number;
+  /** The run's cash breakdown — one per run, re-sent whenever it is re-saved. */
+  cashCounts: number;
   paymentProofs: number;
   customers: number;
   total: number;
@@ -195,6 +244,7 @@ const NoBlocked: SyncBlocked = {
   receipts: 0,
   stockEntries: 0,
   expenses: 0,
+  cashCounts: 0,
   paymentProofs: 0,
   customers: 0,
   total: 0,
@@ -214,6 +264,8 @@ export type SyncSynced = {
   receipts: number;
   stockEntries: number;
   expenses: number;
+  /** The run's cash breakdown — one per run, re-sent whenever it is re-saved. */
+  cashCounts: number;
   paymentProofs: number;
   customers: number;
   total: number;
@@ -223,6 +275,7 @@ const NoSynced: SyncSynced = {
   receipts: 0,
   stockEntries: 0,
   expenses: 0,
+  cashCounts: 0,
   paymentProofs: 0,
   customers: 0,
   total: 0,
@@ -233,6 +286,8 @@ type SyncCounts = {
   receipts: number;
   stockEntries: number;
   expenses: number;
+  /** The run's cash breakdown — one per run, re-sent whenever it is re-saved. */
+  cashCounts: number;
   paymentProofs: number;
   customers: number;
 };
@@ -254,6 +309,9 @@ export function syncCountParts(counts: SyncCounts): string[] {
   if (counts.stockEntries > 0)
     parts.push(`${counts.stockEntries} inventory ${counts.stockEntries === 1 ? 'entry' : 'entries'}`);
   if (counts.expenses > 0) parts.push(`${counts.expenses} ${counts.expenses === 1 ? 'expense' : 'expenses'}`);
+  // "Breakdown" is the word on the phone's tab and card, so it is the word here.
+  if (counts.cashCounts > 0)
+    parts.push(`${counts.cashCounts} cash ${counts.cashCounts === 1 ? 'breakdown' : 'breakdowns'}`);
   // "payment photo", not "photo": a driver has no other kind on this screen, and
   // the word is what connects the count to the GCash/cheque receipt it came from.
   if (counts.paymentProofs > 0)
@@ -421,10 +479,11 @@ export function SyncProvider({ children }: PropsWithChildren) {
    */
   const refreshPending = useCallback(async (): Promise<SyncPending | null> => {
     try {
-      const [receipts, stockEntries, expenses, paymentProofs, customers] = await Promise.all([
+      const [receipts, stockEntries, expenses, cashCounts, paymentProofs, customers] = await Promise.all([
         receiptDb.countPendingReceipts(),
         stockDb.countPendingBatches(),
         expenseDb.countPendingExpenses(),
+        expenseDb.countPendingCashCounts(),
         receiptDb.countPendingPaymentProofs(),
         customerDb.countPendingCustomers(),
       ]);
@@ -432,20 +491,22 @@ export function SyncProvider({ children }: PropsWithChildren) {
         receipts,
         stockEntries,
         expenses,
+        cashCounts,
         paymentProofs,
         customers,
-        total: receipts + stockEntries + expenses + paymentProofs + customers,
+        total: receipts + stockEntries + expenses + cashCounts + paymentProofs + customers,
       };
       setPending(next);
 
       // Counted on the same pass but reported separately, and never allowed to
       // affect what this function returns: "End the Day" reads that to decide
       // whether the queue is empty, and a blocked record is not queued.
-      const [blockedReceipts, blockedStock, blockedExpenses, blockedProofs, blockedCustomers] =
+      const [blockedReceipts, blockedStock, blockedExpenses, blockedCashCounts, blockedProofs, blockedCustomers] =
         await Promise.all([
           receiptDb.countBlockedReceipts(),
           stockDb.countBlockedBatches(),
           expenseDb.countBlockedExpenses(),
+          expenseDb.countBlockedCashCounts(),
           receiptDb.countBlockedPaymentProofs(),
           customerDb.countBlockedCustomers(),
         ]);
@@ -453,29 +514,34 @@ export function SyncProvider({ children }: PropsWithChildren) {
         receipts: blockedReceipts,
         stockEntries: blockedStock,
         expenses: blockedExpenses,
+        cashCounts: blockedCashCounts,
         paymentProofs: blockedProofs,
         customers: blockedCustomers,
-        total: blockedReceipts + blockedStock + blockedExpenses + blockedProofs + blockedCustomers,
+        total:
+          blockedReceipts + blockedStock + blockedExpenses + blockedCashCounts + blockedProofs + blockedCustomers,
       });
 
       // Same idea, the other outcome: how much this phone has gotten through
       // versus how much it's had refused. Read on the same pass as the two
       // above so the three numbers in Settings never describe three different
       // moments.
-      const [syncedReceipts, syncedStock, syncedExpenses, syncedProofs, syncedCustomers] = await Promise.all([
-        receiptDb.countSyncedReceipts(),
-        stockDb.countSyncedBatches(),
-        expenseDb.countSyncedExpenses(),
-        receiptDb.countSyncedPaymentProofs(),
-        customerDb.countSyncedCustomers(),
-      ]);
+      const [syncedReceipts, syncedStock, syncedExpenses, syncedCashCounts, syncedProofs, syncedCustomers] =
+        await Promise.all([
+          receiptDb.countSyncedReceipts(),
+          stockDb.countSyncedBatches(),
+          expenseDb.countSyncedExpenses(),
+          expenseDb.countSyncedCashCounts(),
+          receiptDb.countSyncedPaymentProofs(),
+          customerDb.countSyncedCustomers(),
+        ]);
       setSynced({
         receipts: syncedReceipts,
         stockEntries: syncedStock,
         expenses: syncedExpenses,
+        cashCounts: syncedCashCounts,
         paymentProofs: syncedProofs,
         customers: syncedCustomers,
-        total: syncedReceipts + syncedStock + syncedExpenses + syncedProofs + syncedCustomers,
+        total: syncedReceipts + syncedStock + syncedExpenses + syncedCashCounts + syncedProofs + syncedCustomers,
       });
 
       return next;
@@ -554,6 +620,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
           await drainStock(inputs.runsById, inputs.runLogLoaded);
           await drainReceipts(inputs.runsById, inputs.runLogLoaded);
           await drainExpenses(inputs.runsById, inputs.runLogLoaded);
+          await drainCashCounts(inputs.runsById, inputs.runLogLoaded);
           // Photos last. Every drain stops the pass at the first transient
           // failure, so this order is the order things reach the server on a
           // weak signal — and a 150 KB photo ahead of the day's takings would
@@ -711,6 +778,14 @@ export function SyncProvider({ children }: PropsWithChildren) {
     const draft = await receiptDb.findDraftReceipt();
     if (draft) throw new OpenDraftError(draft.customerName);
 
+    // The owner's rule: a day isn't finished until the money side of it is
+    // written down — at least one expense (₱0 is allowed for a day with none)
+    // and a saved cash breakdown. Checked before the upload passes for the same
+    // reason the draft is: there's no point spending timeouts on a day that
+    // can't close anyway.
+    const missing = await findMissingCloseout(ctx.runId);
+    if (missing) throw new MissingCloseoutError(missing);
+
     let left = await countOrThrow();
     // From here to the end of the loop, an App Check stall is on the clock —
     // see closingRun. Restored in the `finally` so a close that fails, or one
@@ -754,6 +829,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
       blockedReceipts,
       blockedStock,
       blockedExpenses,
+      blockedCashCounts,
       blockedProofs,
       blockedCustomers,
     ] = await Promise.all([
@@ -774,6 +850,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
         receiptDb.countBlockedReceiptsForRun(ctx.runId),
         stockDb.countBlockedBatchesForRun(ctx.runId),
         expenseDb.countBlockedExpensesForRun(ctx.runId),
+        expenseDb.countBlockedCashCountsForRun(ctx.runId),
         receiptDb.countBlockedPaymentProofsForRun(ctx.runId),
         customerDb.countBlockedCustomers(),
       ]);
@@ -799,7 +876,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
       // open (nothing would ever send it), so this is the number that explains
       // a run whose documents don't add up to its own counts.
       blockedUploadCount:
-        blockedReceipts + blockedStock + blockedExpenses + blockedProofs + blockedCustomers,
+        blockedReceipts + blockedStock + blockedExpenses + blockedCashCounts + blockedProofs + blockedCustomers,
     };
 
     // The header before the closing write, if it never made it up — a run whose
@@ -951,14 +1028,15 @@ let appCheckQuarantined = false;
  * `setDoc`.
  */
 async function requeueBlocked(): Promise<number> {
-  const [receipts, stockEntries, expenses, paymentProofs, customers] = await Promise.all([
+  const [receipts, stockEntries, expenses, cashCounts, paymentProofs, customers] = await Promise.all([
     receiptDb.retryBlockedReceipts(),
     stockDb.retryBlockedBatches(),
     expenseDb.retryBlockedExpenses(),
+    expenseDb.retryBlockedCashCounts(),
     receiptDb.retryBlockedPaymentProofs(),
     customerDb.retryBlockedCustomers(),
   ]);
-  return receipts + stockEntries + expenses + paymentProofs + customers;
+  return receipts + stockEntries + expenses + cashCounts + paymentProofs + customers;
 }
 
 /**
@@ -1253,6 +1331,38 @@ async function drainExpenses(runsById: Map<string, RunRecord>, runLogLoaded: boo
       runDetails(stamp)
     );
     if (uploaded) await expenseDb.markExpenseSynced(expense.id, expense.updatedAt);
+  }
+}
+
+/**
+ * Cash breakdowns, on their way up — one per run, re-sent whenever re-saved.
+ *
+ * After expenses: the breakdown is checked against the takings and the
+ * expenses, so it is the least use to the dashboard until those have arrived.
+ * Marked synced on `updatedAt`, because a driver can recount while the previous
+ * count is still in the air — see markCashCountSynced in lib/expense-db.ts.
+ */
+async function drainCashCounts(runsById: Map<string, RunRecord>, runLogLoaded: boolean): Promise<void> {
+  const counts = await expenseDb.loadPendingCashCounts(BatchLimit);
+  for (const count of counts) {
+    const stamp = runsById.get(count.runId);
+    if (!stamp) {
+      if (!mayWriteOff(runLogLoaded, 'sync.cashCount', count.runId, count.runId)) continue;
+      logError('sync.cashCount.run', new Error(`Cash breakdown for ${count.runId} belongs to no known run`), {
+        runId: count.runId,
+      });
+      await expenseDb.markCashCountLegacy(count.runId);
+      continue;
+    }
+    const uploaded = await uploadOrSetAside(
+      'sync.cashCount',
+      count.runId,
+      () => sync.uploadCashCount(stamp, count),
+      expenseDb.bumpCashCountAttempts,
+      expenseDb.markCashCountBlocked,
+      runDetails(stamp)
+    );
+    if (uploaded) await expenseDb.markCashCountSynced(count.runId, count.updatedAt);
   }
 }
 

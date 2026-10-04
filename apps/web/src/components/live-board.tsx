@@ -23,11 +23,13 @@ import {
   runSpansDays,
   totalReceipts,
   tripNumber,
+  watchRunCashCount,
   watchRunExpenses,
   watchRunReceipts,
   watchRunStockEntries,
   watchRunsForDay,
   type Run,
+  type RunCashCount,
   type RunExpense,
   type RunReceipt,
   type RunStockEntry,
@@ -244,6 +246,9 @@ export function LiveBoard() {
           receipts={records.receipts.get(selectedRun.id) ?? null}
           entries={records.entries.get(selectedRun.id) ?? null}
           expenses={records.expenses.get(selectedRun.id) ?? null}
+          // `undefined` while the listener hasn't answered; `null` once it has
+          // and there is no breakdown — two different things to show.
+          cashCount={records.cashCounts.get(selectedRun.id)}
           breadTypes={breadTypes}
           returnedBreadTypes={returnedBreadTypes}
           now={now}
@@ -540,6 +545,8 @@ type RunRecords = {
   receipts: Map<string, RunReceipt[]>;
   entries: Map<string, RunStockEntry[]>;
   expenses: Map<string, RunExpense[]>;
+  /** Absent while loading; `null` when the run has no breakdown saved. */
+  cashCounts: Map<string, RunCashCount | null>;
 };
 
 /**
@@ -566,6 +573,7 @@ function useRunRecords(runs: Run[] | null): RunRecords {
   const [receipts, setReceipts] = useState<Map<string, RunReceipt[]>>(new Map());
   const [entries, setEntries] = useState<Map<string, RunStockEntry[]>>(new Map());
   const [expenses, setExpenses] = useState<Map<string, RunExpense[]>>(new Map());
+  const [cashCounts, setCashCounts] = useState<Map<string, RunCashCount | null>>(new Map());
 
   useEffect(() => {
     const ids = key ? key.split(' ') : [];
@@ -579,6 +587,7 @@ function useRunRecords(runs: Run[] | null): RunRecords {
     setReceipts(prune);
     setEntries(prune);
     setExpenses(prune);
+    setCashCounts(prune);
 
     // A failed listener is left to Firestore's own retry: it reconnects on its
     // own, and the page-level notice already covers "the day wouldn't load".
@@ -598,12 +607,17 @@ function useRunRecords(runs: Run[] | null): RunRecords {
         (rows) => setExpenses((prev) => new Map(prev).set(id, rows)),
         () => {},
       ),
+      watchRunCashCount(
+        id,
+        (count) => setCashCounts((prev) => new Map(prev).set(id, count)),
+        () => {},
+      ),
     ]);
 
     return () => stops.forEach((stop) => stop());
   }, [key]);
 
-  return { receipts, entries, expenses };
+  return { receipts, entries, expenses, cashCounts };
 }
 
 /**

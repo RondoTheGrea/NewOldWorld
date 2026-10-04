@@ -33,6 +33,7 @@ import {
 } from '@/lib/excel-style';
 import type {
   PeriodBreadRow,
+  PeriodCashCountItem,
   PeriodDayRow,
   PeriodExpenseItem,
   PeriodGroupRow,
@@ -42,7 +43,7 @@ import type {
   PeriodReceiptItem,
 } from '@/lib/period-summary';
 import { paymentLabel } from '@/lib/payment-methods';
-import { describeRunEnd, runAgentNames, runEndDay } from '@/lib/runs';
+import { BillDenominations, describeRunEnd, runAgentNames, runEndDay } from '@/lib/runs';
 
 /**
  * The period workbook — a range of business days as eight sheets.
@@ -110,6 +111,10 @@ const Sheets = {
   expenses: 'Expenses',
   runs: 'Runs',
   receipts: 'Receipts',
+  // Not "Breakdown" — that name is already the by-day / by-truck sheet. The
+  // phone and the run workbook call this one just "Breakdown"; here it needs
+  // the word "Cash" to tell the two apart.
+  cashCounts: 'Cash breakdown',
 } as const;
 
 /** Free text is held to this rather than `autoWidth`'s 44-character cap, which would swamp the figures. */
@@ -446,6 +451,8 @@ export async function exportPeriodToExcel({ summary }: ExportPeriodExcelInput): 
   const runsSheet = workbook.addWorksheet(Sheets.runs, frozen);
   // Last: the finest grain in the file, after the trips the receipts belong to.
   const receiptsSheet = workbook.addWorksheet(Sheets.receipts, frozen);
+  // The very last tab, on the owner's call.
+  const cashCountsSheet = workbook.addWorksheet(Sheets.cashCounts, frozen);
 
   const days = buildBreakdownSheet(breakdownSheet, summary);
   buildBreadSheet(breadSheet, summary);
@@ -454,6 +461,7 @@ export async function exportPeriodToExcel({ summary }: ExportPeriodExcelInput): 
   const expenses = buildExpensesSheet(expensesSheet, summary);
   buildRunsSheet(runsSheet, summary);
   const receipts = buildReceiptsSheet(receiptsSheet, summary.receipts);
+  buildCashCountsSheet(cashCountsSheet, summary.cashCounts);
   buildSummarySheet(summarySheet, summary, { days, collected, expenses, receipts });
 
   const fileName =
@@ -854,6 +862,68 @@ function buildExpensesSheet(sheet: ExcelJS.Worksheet, summary: PeriodSummary): T
     'An expense removed on the phone is not listed and is in no total here.',
   ]);
   return items;
+}
+
+// ---------------------------------------------------------------------------
+// Cash breakdown
+// ---------------------------------------------------------------------------
+
+/**
+ * Every run's cash breakdown, one row per run, newest first like the Runs sheet.
+ *
+ * **Each row names the run it belongs to** — day, agents, truck and start time,
+ * the same four columns the Runs sheet leads with, plus the run's id at the
+ * end — on the owner's call, because a breakdown on its own is a stack of
+ * numbers with no trip attached. A run whose agents never saved one still gets
+ * a row, marked "Not saved", so the gap is visible rather than a missing line.
+ *
+ * Then the phone's own comparison, column by column: cash from receipts,
+ * expense, expected, and Short by / Exact / Over by against the breakdown
+ * total. Expenses are subtracted here and nowhere else in this file.
+ */
+function buildCashCountsSheet(sheet: ExcelJS.Worksheet, rows: PeriodCashCountItem[]) {
+  const billColumns: TableColumn<PeriodCashCountItem>[] = BillDenominations.map((denomination) => ({
+    header: `₱${denomination.toLocaleString('en-US')}`,
+    value: (row: PeriodCashCountItem) => (row.count ? row.count.bills[denomination] : null),
+    format: 'count' as const,
+    total: 'sum' as const,
+  }));
+  const columns: TableColumn<PeriodCashCountItem>[] = [
+    { header: 'Day', value: (row) => row.run.businessDay },
+    { header: 'Agents', value: (row) => runAgentNames(row.run), width: TextColumnWidth },
+    { header: 'Truck', value: (row) => row.run.truckName || '—' },
+    { header: 'Started', value: (row) => (row.run.startedAt ? formatBusinessTime(row.run.startedAt) : '—') },
+    ...billColumns,
+    { header: 'Coins', value: (row) => (row.count ? row.count.coins : null), format: 'money', total: 'sum' },
+    {
+      header: 'Breakdown total',
+      value: (row) => (row.count ? row.count.total : null),
+      format: 'money',
+      total: 'sum',
+    },
+    { header: 'Cash from receipts', value: (row) => row.cashFromReceipts, format: 'money', total: 'sum' },
+    { header: 'Expense', value: (row) => row.expenses, format: 'money', total: 'sum' },
+    { header: 'Expected', value: (row) => row.expected, format: 'money', total: 'sum' },
+    {
+      header: 'Result',
+      value: (row) =>
+        row.difference === null
+          ? 'Not saved'
+          : row.difference === 0
+            ? 'Exact'
+            : row.difference < 0
+              ? `Short by ₱${(-row.difference).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : `Over by ₱${row.difference.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    },
+    { header: 'Saved at', value: (row) => (row.count ? formatBusinessTime(row.count.updatedAt) : '—') },
+    { header: 'Run ID', value: (row) => row.run.id, width: TextColumnWidth },
+  ];
+  const table = addTable(sheet, columns, rows);
+  sizeSheet(sheet, table, rows);
+  noteUnder(sheet, table, [
+    'One row per run. Day, Agents, Truck and Started match the Runs sheet; Run ID is the run itself.',
+    'Cash from receipts is cash receipts plus down payments on partial ones, voided receipts left out. Expected is that minus the expenses — the only place in this file expenses are taken off anything.',
+  ]);
 }
 
 // ---------------------------------------------------------------------------

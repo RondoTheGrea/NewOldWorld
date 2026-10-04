@@ -247,6 +247,32 @@ independent.
   then by start time. It used to be grouped by area; areas were removed on the
   owner's call (October 2026). Each row leads with the run's agents
   (`runAgentNames`), falling back to the login that started it.
+- **The run panel has six tabs — Receipts, Inventory, Outcome, Collected,
+  Expenses, Breakdown — and the strip scrolls by mouse too.** Breakdown (last,
+  on the owner's call) shows the agents' cash count bill by bill, then the
+  phone's own sum line for line: Cash from receipts (cash + partial down
+  payments), Expense, **Expected**, Breakdown total, and **Short by / Exact /
+  Over by** right-aligned under a heavy rule (`compareCashCount`,
+  `describeCashDifference` in `lib/runs.ts`). That comparison is the **only**
+  place the dashboard takes expenses off anything, and the tab says so. The
+  breakdown is one document per run (`runs/{runId}/cashCounts/{runId}`), watched
+  by the board like the other child collections (`watchRunCashCount`) and
+  handed down as `undefined` (loading) / `null` (none saved) / the count.
+  - **`useDragScroll` (`lib/use-drag-scroll.ts`) makes the tab strip scroll
+    with a mouse wheel while hovering and with click-and-drag**, because six
+    tabs overflow the drawer and a mouse had no way to reach the last ones.
+    Only a wheel's vertical movement is translated (trackpads already scroll
+    sideways), and **every wheel event over the strip is swallowed, with no
+    exceptions** — not at the ends, not when the tabs fit, not sideways — on
+    the owner's call that hovering the tabs and wheeling must only move the
+    tabs. Passing any of them on made the drawer scroll once the tabs hit their
+    end. `overscroll-behavior: contain` backs it up.
+    `.ops-subtabs` also sets `overflow-y: hidden` explicitly: the tabs'
+    `margin-bottom: -1px` made the strip a pixel taller than its box, and the
+    wheel scrolled it up and down by that pixel. A drag past 5px swallows the click it ends on, so letting go over a
+    tab doesn't switch to it. Mouse only — touch scrolls natively. The wheel
+    listener is attached by hand because React's is passive and can't stop the
+    page scrolling.
 - **"Export summary" sits in the day bar beside the day navigation, and is
   dressed as an action rather than as a fifth way to move the day.** Everything
   inside `.ops-daynav` shares one chrome because ‹ Today › and the calendar are
@@ -258,8 +284,8 @@ independent.
 ### Exporting a run to Excel
 
 The **Export** button in the run panel — on the totals heading's own line, so it
-sits with the figures it takes away — builds a five-sheet workbook (Summary,
-Receipts, Bread, Collected, Expenses, plus Photos when there are any) with
+sits with the figures it takes away — builds a six-sheet workbook (Summary,
+Receipts, Bread, Collected, Expenses, plus Photos when there are any, then Breakdown last) with
 ExcelJS (`lib/export-run-excel.ts`) and hands it to the browser as a download.
 Nothing is generated server-side; the sheets are built from the rows the panel
 already has. A failed export shows the page's red `.ops-notice-alert` right
@@ -267,6 +293,12 @@ under the button (`exportError`) — it was a browser `alert()` until September
 2026, the one error on this surface not in the page's own style. The next
 attempt, or opening another run, clears it.
 
+- **The last tab is "Breakdown"** — after Photos too, on the owner's call —
+  the cash count (Bill / Count / Amount, with `denomination*count` formulas and
+  a SUM total), then the phone's comparison in column C: Cash from receipts
+  (`Collected!B2+Collected!B6`), Expense (`-Expenses!D…`), Expected, Breakdown
+  total, and an `IF` formula giving Short by / Exact / Over by under a heavy
+  rule. Always present; a run with no breakdown gets one line saying so.
 - **One Bread sheet, laid out like the period workbook's.** It was two sheets —
   Inventory (initial load and each top-up) and Outcome (sold, returned,
   remaining), in two different orders — until September 2026, when the owner
@@ -398,8 +430,8 @@ attempt, or opening another run, clears it.
 The other workbook: **a range of business days**, from the **Export summary**
 button in the Live tab's day bar. `components/period-export-dialog.tsx` asks
 which days; `lib/period-summary.ts` reads and folds them; and
-`lib/export-period-excel.ts` lays the result out as eight sheets — Summary,
-Breakdown, Bread, Stores, Collected, Expenses, Runs, Receipts. It exists
+`lib/export-period-excel.ts` lays the result out as nine sheets — Summary,
+Breakdown, Bread, Stores, Collected, Expenses, Runs, Receipts, Cash breakdown. It exists
 because a month gets asked things one run cannot answer: which truck is ahead,
 which bread nobody buys, which store has stopped ordering, and how much of the
 money is still out there.
@@ -576,6 +608,15 @@ money is still out there.
 - **The progress bar is determinate**, which the run export's cannot be: the run
   count is known before the first read, so "Reading run 43 of 210" is honest.
   A minute of bare spinner says nothing about whether anything is happening.
+- **The last tab is "Cash breakdown"** (not "Breakdown" — that name is taken
+  by the by-day / by-truck sheet). One row per run, newest first like Runs,
+  **including runs with no breakdown** ("Not saved"). Each row names its run
+  the way the Runs sheet does — Day, Agents, Truck, Started — and ends with the
+  Run ID, on the owner's call that every breakdown has to point at the run it
+  belongs to. Then each bill count, Coins, Breakdown total, Cash from receipts,
+  Expense, Expected and Result. `period-summary.ts` reads each run's breakdown
+  with `fetchRunCashCount` alongside its other three collections and folds
+  `cashCounts` (`PeriodCashCountItem`).
 - **Every receipt is on the Receipts sheet; voided ones are folded into nothing
   else.** `foldPeriod` filters voided receipts out of each run's receipts before
   any fold runs, and separately lists *every* receipt as a `PeriodReceiptItem`

@@ -17,7 +17,7 @@ the next person undoing it:
 
 | File | Covers |
 | --- | --- |
-| `apps/mobile/CLAUDE.md` | Everything on the phone — auth, theme, navigation, the inventory ledger, receipts, printing, expenses, catalogs, sync, App Check, failure handling |
+| `apps/mobile/CLAUDE.md` | Everything on the phone — auth, theme, navigation, the inventory ledger, receipts, printing, expenses + the cash count, catalogs, sync, App Check, failure handling |
 | `apps/web/CLAUDE.md` | Everything in the browser — the Overview tab (Live / Trends / Stores), the Excel export, charts, the Team page, one-browser-per-account, App Check |
 | `firebase/CLAUDE.md` | The project, region, Firestore/Storage rules, emulators, deploying, and the Java-version wrinkle |
 | `docs/sync-design.md` | Full design and rationale for the phone→Firestore sync |

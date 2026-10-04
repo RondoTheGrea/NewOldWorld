@@ -1,5 +1,5 @@
 import { SymbolView } from 'expo-symbols';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -12,10 +12,12 @@ import {
   type TextInputProps,
 } from 'react-native';
 
+import { CashCountPanel, useRunCashSales } from '@/components/cash-count-panel';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ThemedText } from '@/components/themed-text';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useExpenses, type Expense } from '@/context/expenses';
+import { useKeyboardSheet } from '@/hooks/use-keyboard-sheet';
 import { useTheme } from '@/hooks/use-theme';
 import {
   ExpenseFieldLimits,
@@ -28,9 +30,23 @@ import { formatAmount } from '@/lib/money';
 import { runWithRetry } from '@/lib/retry';
 import { sanitizeSingleLine } from '@/lib/text-input';
 
+/** Which half of the sheet is showing. */
+export type CashExpensesTab = 'cash' | 'expenses';
+
 /**
- * The whole expense feature on the phone: this run's expenses, and the form
- * that adds one.
+ * The sheet behind the Home "Breakdown & Expenses" card: the **cash count**
+ * (components/cash-count-panel.tsx) and this run's **expenses**, one tab each.
+ *
+ * They share a sheet because they answer one question — where did the money go
+ * — and the cash count's comparison takes expenses into account. Home was out of
+ * room for a second card, and the owner asked for the two to be one.
+ *
+ * Unlike when it held expenses alone, it **does not close on a tap outside**:
+ * the cash count is seven numbers typed from a stack of bills, so the rule in
+ * CLAUDE.md's "Modals and the keyboard" applies, and closing over an unsaved
+ * count asks first.
+ *
+ * The expenses half — this run's expenses, and the form that adds one:
  *
  * One modal rather than a tab, and deliberately so. An expense is recorded a
  * handful of times a trip — fuel, a toll, lunch — which does not earn a fifth
@@ -43,25 +59,58 @@ import { sanitizeSingleLine } from '@/lib/text-input';
  * not because anything is deleted, but because the next run has no expenses yet
  * (see context/expenses.tsx).
  */
-export function ExpensesModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+export function ExpensesModal({
+  visible,
+  initialTab,
+  onClose,
+}: {
+  visible: boolean;
+  initialTab: CashExpensesTab;
+  onClose: () => void;
+}) {
+  // Android's back button arrives here, outside the body, so the body hands up
+  // its own close handler — the one that asks before dropping an unsaved count.
+  const requestCloseRef = useRef(onClose);
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => requestCloseRef.current()}>
       {/* Mounted fresh each time, so the form always starts blank rather than
           holding whatever a previous open left in it. */}
-      {visible && <ExpensesBody onClose={onClose} />}
+      {visible && <ExpensesBody initialTab={initialTab} onClose={onClose} requestCloseRef={requestCloseRef} />}
     </Modal>
   );
 }
 
-function ExpensesBody({ onClose }: { onClose: () => void }) {
+function ExpensesBody({
+  initialTab,
+  onClose,
+  requestCloseRef,
+}: {
+  initialTab: CashExpensesTab;
+  onClose: () => void;
+  requestCloseRef: { current: () => void };
+}) {
   const theme = useTheme();
   const { expenses, expenseTotal, expensesLoading, expensesError, reloadExpenses, removeExpense } =
     useExpenses();
+  const { overlap, onBackdropLayout, scrollProps } = useKeyboardSheet();
+  const { cashSales, cashSalesFailed } = useRunCashSales();
+  const [tab, setTab] = useState<CashExpensesTab>(initialTab);
+  const [countDirty, setCountDirty] = useState(false);
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const onCountDirtyChange = useCallback((dirty: boolean) => setCountDirty(dirty), []);
   const [adding, setAdding] = useState(false);
   // The expense whose Remove button was tapped, which is also what puts the
   // confirmation up — so the dialog can name it rather than asking about
   // "this expense" with the row itself behind a dimmed backdrop.
   const [removing, setRemoving] = useState<Expense | null>(null);
+
+  function handleClose() {
+    if (countDirty) setConfirmingDiscard(true);
+    else onClose();
+  }
+  useEffect(() => {
+    requestCloseRef.current = handleClose;
+  });
 
   async function handleRemove(expense: Expense) {
     setRemoving(null);
@@ -73,19 +122,23 @@ function ExpensesBody({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <View style={styles.backdrop}>
-      {/* Keep tap-to-close behind the sheet so the expense list's ScrollView
-          owns pointer and wheel gestures inside the modal. */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+    <View style={styles.backdrop} onLayout={onBackdropLayout}>
       <View style={styles.sheetWrapper}>
         <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={[styles.sheet, { backgroundColor: theme.background }]}>
             <View style={styles.header}>
-              <ThemedText type="subtitle" style={styles.title}>
-                Expenses
+              {/* One line, always: the title is long for a 32pt heading, so on
+                  a narrow phone it shrinks to fit rather than wrapping. */}
+              <ThemedText
+                type="subtitle"
+                style={styles.title}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.5}>
+                Breakdown &amp; Expenses
               </ThemedText>
               <Pressable
-                onPress={onClose}
+                onPress={handleClose}
                 accessibilityRole="button"
                 accessibilityLabel="Close"
                 hitSlop={Spacing.two}
@@ -94,7 +147,23 @@ function ExpensesBody({ onClose }: { onClose: () => void }) {
               </Pressable>
             </View>
 
-            {adding ? (
+            {/* Hidden while the expense form is open — that form has its own
+                Cancel, and switching away mid-expense would lose it. */}
+            {!adding ? <TabSwitcher tab={tab} onChange={setTab} /> : null}
+
+            {/* Kept mounted, only hidden, while the Expenses tab is showing —
+                so a half-typed count survives a look at the expense list. */}
+            <View style={[styles.fill, styles.tabBody, tab !== 'cash' && styles.hidden]}>
+              <CashCountPanel
+                cashSales={cashSales}
+                cashSalesFailed={cashSalesFailed}
+                onDirtyChange={onCountDirtyChange}
+                overlap={overlap}
+                scrollProps={scrollProps}
+              />
+            </View>
+
+            {tab !== 'expenses' ? null : adding ? (
               <ExpenseForm onDone={() => setAdding(false)} />
             ) : (
               <>
@@ -108,10 +177,6 @@ function ExpensesBody({ onClose }: { onClose: () => void }) {
                 {/* Said plainly and in one place, because it is the whole point
                     of the feature: these numbers are a record, not a deduction.
                     Nothing on the phone or the dashboard takes them off sales. */}
-                <ThemedText type="small" themeColor="textSecondary">
-                  Kept for the server as a record of the trip. Expenses are never taken off sales or the truck&apos;s
-                  takings.
-                </ThemedText>
 
                 <ScrollView style={styles.fill} contentContainerStyle={styles.list}>
                   {expensesError ? (
@@ -165,6 +230,21 @@ function ExpensesBody({ onClose }: { onClose: () => void }) {
         </KeyboardAvoidingView>
       </View>
 
+      <ConfirmDialog
+        visible={confirmingDiscard}
+        title="Close without saving the breakdown?"
+        message="The breakdown you typed hasn't been saved."
+        cancelLabel="Keep counting"
+        confirmLabel="Close"
+        tone="danger"
+        preferCancel
+        onCancel={() => setConfirmingDiscard(false)}
+        onConfirm={() => {
+          setConfirmingDiscard(false);
+          onClose();
+        }}
+      />
+
       {/* Names the expense and shows its amount, so the question can be
           answered without the row behind the dimmed backdrop. */}
       <ConfirmDialog
@@ -183,6 +263,37 @@ function ExpensesBody({ onClose }: { onClose: () => void }) {
           if (removing) void handleRemove(removing);
         }}
       />
+    </View>
+  );
+}
+
+/** Two equal halves, the selected one filled — the app's outline/filled button pair, side by side. */
+function TabSwitcher({ tab, onChange }: { tab: CashExpensesTab; onChange: (tab: CashExpensesTab) => void }) {
+  const theme = useTheme();
+  const tabs: { key: CashExpensesTab; label: string }[] = [
+    { key: 'cash', label: 'Breakdown' },
+    { key: 'expenses', label: 'Expenses' },
+  ];
+  return (
+    <View style={[styles.tabs, { borderColor: theme.border, backgroundColor: theme.backgroundElement }]}>
+      {tabs.map(({ key, label }) => {
+        const selected = key === tab;
+        return (
+          <Pressable
+            key={key}
+            onPress={() => onChange(key)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            style={({ pressed }) => [
+              styles.tab,
+              { backgroundColor: selected ? theme.text : 'transparent', opacity: pressed ? 0.8 : 1 },
+            ]}>
+            <ThemedText type="smallBold" style={{ color: selected ? theme.background : theme.text }}>
+              {label}
+            </ThemedText>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -241,7 +352,11 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
   // an expense with a blank title.
   const cleanTitle = sanitizeSingleLine(title, ExpenseFieldLimits.title);
   const cleanAmount = normalizeExpenseAmount(Number(amount));
-  const canSubmit = cleanTitle.length > 0 && cleanAmount > 0 && !saving;
+  // ₱0 is allowed (the owner's call) — an expense can be noted with nothing
+  // paid. But the field still has to hold a real number: a *blank* amount is
+  // a forgotten one, not a zero, and Number('') would quietly read it as 0.
+  const amountTyped = amount.trim() !== '' && Number.isFinite(Number(amount)) && Number(amount) >= 0;
+  const canSubmit = cleanTitle.length > 0 && amountTyped && !saving;
 
   async function handleSave() {
     setConfirming(false);
@@ -387,6 +502,25 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
+  },
+  tabs: {
+    flexDirection: 'row',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: Spacing.two,
+    padding: Spacing.half,
+    gap: Spacing.half,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    borderRadius: Spacing.two,
+    paddingVertical: Spacing.two,
+  },
+  tabBody: {
+    gap: Spacing.two,
+  },
+  hidden: {
+    display: 'none',
   },
   totalRow: {
     flexDirection: 'row',

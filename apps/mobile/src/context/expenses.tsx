@@ -3,11 +3,13 @@ import { Platform } from 'react-native';
 
 import { NoOpenRunError, useInventory } from '@/context/inventory';
 import { logError } from '@/lib/errors';
+import type { CashCount, CashCountInput } from '@/lib/cash-count';
 import * as expenseDb from '@/lib/expense-db';
 import type { Expense, ExpenseInput } from '@/lib/expense-types';
 import { requestSync } from '@/lib/sync';
 
 export type { Expense, ExpenseInput } from '@/lib/expense-types';
+export type { CashCount, CashCountInput } from '@/lib/cash-count';
 
 /**
  * What the truck spent on this trip out.
@@ -20,6 +22,11 @@ export type { Expense, ExpenseInput } from '@/lib/expense-types';
  * **Nothing here is arithmetic anybody else consumes.** `expenseTotal` is for
  * the Expenses card to show; no receipt total, no manifest sales figure and no
  * dashboard statistic nets it off anything. See lib/expense-types.ts.
+ *
+ * Also holds this run's **cash count** (lib/cash-count.ts) — the bills the
+ * driver is actually holding. It shares this provider because it shares the
+ * Home card, the run scoping and the database file; it loads with the expenses
+ * and is masked with them.
  */
 
 type ExpensesContextValue = {
@@ -43,6 +50,10 @@ type ExpensesContextValue = {
   addExpense: (input: ExpenseInput, expenseId?: string) => Promise<void>;
   /** Removes an expense. A soft delete — see deleteExpenseRow in lib/expense-db.ts. */
   removeExpense: (id: string) => Promise<void>;
+  /** This run's saved cash count, or null if none has been saved (or it hasn't loaded). */
+  cashCount: CashCount | null;
+  /** Saves this run's cash count, replacing the earlier one. Safe to retry. */
+  saveCashCount: (input: CashCountInput) => Promise<void>;
 };
 
 const ExpensesContext = createContext<ExpensesContextValue | null>(null);
@@ -70,6 +81,7 @@ function requireRun(runId: string | null): string {
 export function ExpensesProvider({ children }: PropsWithChildren) {
   const { runId } = useInventory();
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [cashCount, setCashCount] = useState<CashCount | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Which run the list in state actually belongs to. Without it, the instant a
   // new run opens the previous run's expenses are still in state and would be
@@ -86,11 +98,11 @@ export function ExpensesProvider({ children }: PropsWithChildren) {
     // than cleared here, so this effect never sets state on its own.
     if (!runId) return;
 
-    expenseDb
-      .loadExpensesForRun(runId)
-      .then((rows) => {
+    Promise.all([expenseDb.loadExpensesForRun(runId), expenseDb.loadCashCountForRun(runId)])
+      .then(([rows, count]) => {
         if (cancelled) return;
         setExpenses(rows);
+        setCashCount(count);
         setLoadedRunId(runId);
       })
       .catch((error: unknown) => {
@@ -119,6 +131,7 @@ export function ExpensesProvider({ children }: PropsWithChildren) {
 
   const ready = runId !== null && loadedRunId === runId;
   const visible = ready ? expenses : [];
+  const visibleCashCount = ready ? cashCount : null;
 
   // Both writers nudge sync only after the row is safely on disk. requestSync()
   // never throws and never waits — a failed upload leaves the row pending and
@@ -137,6 +150,13 @@ export function ExpensesProvider({ children }: PropsWithChildren) {
     requestSync();
   }
 
+  // Nudges sync like the expense writers: a saved breakdown is a live upload.
+  async function saveCashCount(input: CashCountInput) {
+    const saved = await expenseDb.saveCashCountForRun(requireRun(runId), input);
+    setCashCount(saved);
+    requestSync();
+  }
+
   const value: ExpensesContextValue = {
     expenses: visible,
     // Only "loading" when there is a run whose expenses haven't arrived. With no
@@ -147,6 +167,8 @@ export function ExpensesProvider({ children }: PropsWithChildren) {
     expenseTotal: visible.reduce((total, expense) => total + expense.amount, 0),
     addExpense,
     removeExpense,
+    cashCount: visibleCashCount,
+    saveCashCount,
   };
 
   return <ExpensesContext value={value}>{children}</ExpensesContext>;

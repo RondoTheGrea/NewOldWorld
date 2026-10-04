@@ -6,6 +6,8 @@ import type { NamedRecord } from '@/lib/named-records';
 import type { ReturnedBreadType } from '@/lib/returned-bread-types';
 import { buildNameFor, compareBreadNames } from '@/lib/run-outcome';
 import {
+  compareCashCount,
+  fetchRunCashCount,
   fetchRunExpenses,
   fetchRunReceipts,
   fetchRunStockEntries,
@@ -18,6 +20,7 @@ import {
   totalStock,
   type CollectedTotals,
   type Run,
+  type RunCashCount,
   type RunExpense,
   type RunReceipt,
   type RunStockEntry,
@@ -238,6 +241,26 @@ export type PeriodExpenseItem = {
 };
 
 /**
+ * One run's cash breakdown, for the workbook's Cash breakdown sheet — **one row
+ * per run in the period**, including runs with no breakdown (`count: null`), so
+ * a missing one is a visible row rather than an absence.
+ *
+ * The run is named the way the Runs sheet names it (day, agents, truck, start
+ * time) plus its id, so every row can be matched to the trip it belongs to.
+ * The comparison figures are the phone's own sum — see `compareCashCount`.
+ */
+export type PeriodCashCountItem = {
+  run: Run;
+  count: RunCashCount | null;
+  /** Cash receipts + down payments on partial ones, voided receipts left out. */
+  cashFromReceipts: number;
+  expenses: number;
+  expected: number;
+  /** counted − expected; null when there is no breakdown to compare. */
+  difference: number | null;
+};
+
+/**
  * One receipt, with enough of its run beside it to be found — **voided ones
  * included**, for the workbook's Receipts sheet.
  *
@@ -294,6 +317,8 @@ export type PeriodSummary = {
   collected: CollectedTotals;
   expenseGroups: PeriodExpenseGroup[];
   expenseItems: PeriodExpenseItem[];
+  /** One row per run, newest first like `runs` — see PeriodCashCountItem. */
+  cashCounts: PeriodCashCountItem[];
   /**
    * Every receipt in the period, oldest first, voided ones included. The voided
    * ones are counted in nothing above; the Receipts sheet leaves them out of its
@@ -316,6 +341,7 @@ type LoadedRun = {
   receipts: RunReceipt[];
   entries: RunStockEntry[];
   expenses: RunExpense[];
+  cashCount: RunCashCount | null;
   read: boolean;
 };
 
@@ -415,15 +441,16 @@ async function loadRuns(runs: Run[], onProgress?: (progress: PeriodProgress) => 
       if (index >= runs.length) return;
       const run = runs[index];
       try {
-        const [receipts, entries, expenses] = await Promise.all([
+        const [receipts, entries, expenses, cashCount] = await Promise.all([
           fetchRunReceipts(run.id),
           fetchRunStockEntries(run.id),
           fetchRunExpenses(run.id),
+          fetchRunCashCount(run.id),
         ]);
-        results[index] = { run, receipts, entries, expenses, read: true };
+        results[index] = { run, receipts, entries, expenses, cashCount, read: true };
       } catch (error) {
         console.error('[period-summary.run]', run.id, error);
-        results[index] = { run, receipts: [], entries: [], expenses: [], read: false };
+        results[index] = { run, receipts: [], entries: [], expenses: [], cashCount: null, read: false };
       } finally {
         done += 1;
         onProgress?.({ done, total: runs.length });
@@ -559,6 +586,7 @@ function foldPeriod({
 
   const runRows: PeriodRunRow[] = [];
   const expenseItems: PeriodExpenseItem[] = [];
+  const cashCountItems: PeriodCashCountItem[] = [];
   const receiptItems: PeriodReceiptItem[] = [];
 
   const breadRows = new Map<string, PeriodBreadRow>();
@@ -599,6 +627,16 @@ function foldPeriod({
       });
     }
     const spend = totalExpenses(expenses);
+    // Off the standing receipts only — `totalCollected` skips voided ones too.
+    const cashCompare = compareCashCount(totalCollected(receipts), spend.total, entry.cashCount?.total ?? 0);
+    cashCountItems.push({
+      run,
+      count: entry.cashCount,
+      cashFromReceipts: cashCompare.cashFromReceipts,
+      expenses: spend.total,
+      expected: cashCompare.expected,
+      difference: entry.cashCount ? cashCompare.difference : null,
+    });
     const lines = totalStock(entries);
     const stock: StockFigures = {
       loaded: lines.reduce((sum, line) => sum + line.loaded, 0),
@@ -691,6 +729,7 @@ function foldPeriod({
     collected: totalCollected(allReceipts),
     expenseGroups: groupExpenses(expenseItems),
     expenseItems: expenseItems.sort((a, b) => a.createdAt - b.createdAt),
+    cashCounts: cashCountItems.sort((a, b) => b.run.startedAt - a.run.startedAt),
     receipts: receiptItems.sort((a, b) => a.createdAt - b.createdAt),
     totals: {
       ...bucketFigures(period),

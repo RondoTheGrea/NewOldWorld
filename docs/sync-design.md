@@ -101,7 +101,8 @@ customers/{customerId}              mobile-owned, two-way sync   NEW
 runs/{runId}                        mobile-created               NEW
   ├── stockEntries/{entryId}        the ledger, one doc per entry
   ├── receipts/{receiptId}          finalized receipts only
-  └── expenses/{expenseId}          what the truck spent on the trip
+  ├── expenses/{expenseId}          what the truck spent on the trip
+  └── cashCounts/{runId}            the cash breakdown — one per run, id = run id
 
 Cloud Storage (not Firestore):
 paymentProofs/{receiptId}.jpg       the GCash/cheque proof photo
@@ -488,6 +489,22 @@ refuses every delete under `/runs`, so a removal has to travel as a flag. That
 is why the manifest's two expense figures count different sets —
 `expenseCount` includes deleted rows (documents sent), `expenseTotal` excludes
 them (money spent).
+
+### `runs/{runId}/cashCounts/{runId}`
+
+The cash the agents counted, bill by bill: `bills` (a map keyed `'1000'`,
+`'500'`, `'200'`, `'100'`, `'50'`, `'20'` → how many), `coins` (one peso
+amount), `total` (as the phone added it up), `updatedAt`, `businessDay`, plus
+the rule-4 stamp. Mirrors `CashCount` in `lib/cash-count.ts`.
+
+**One document per run, at the run's own id**, overwritten (not merged) every
+time the driver re-saves — it is a snapshot of the bag, not a log. That keeps
+rule 1: a re-send lands on the same document. The `/runs/**` rule already
+covers it, so it needed no rules change. Drained after expenses, marked synced
+on `updatedAt` so a recount mid-upload isn't recorded as sent.
+
+**"End the Day" refuses to close without one** — and without at least one
+expense (₱0 is allowed). See `findMissingCloseout` in `context/sync.tsx`.
 
 ### `paymentProofs/{receiptId}.jpg` — Cloud Storage
 

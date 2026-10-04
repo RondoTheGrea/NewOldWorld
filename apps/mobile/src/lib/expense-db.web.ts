@@ -1,3 +1,4 @@
+import type { CashCount, CashCountInput } from '@/lib/cash-count';
 import type { Expense, ExpenseInput } from '@/lib/expense-types';
 
 // Metro's web-platform stand-in for expense-db.ts — see the comment there for
@@ -23,6 +24,18 @@ export async function insertExpense(
 
 export async function deleteExpenseRow(_id: string): Promise<void> {
   throw new Error(UNAVAILABLE_MESSAGE);
+}
+
+export async function loadCashCountForRun(_runId: string): Promise<CashCount | null> {
+  throw new Error(UNAVAILABLE_MESSAGE);
+}
+
+export async function saveCashCountForRun(_runId: string, _input: CashCountInput): Promise<CashCount> {
+  throw new Error(UNAVAILABLE_MESSAGE);
+}
+
+export async function runHasExpense(_runId: string): Promise<boolean> {
+  return false;
 }
 
 // Sync's reads answer "nothing to do" rather than throwing — the same choice
@@ -68,3 +81,37 @@ export async function countSyncedExpenses(): Promise<number> {
 }
 
 export async function markExpenseLegacy(_id: string): Promise<void> {}
+
+export async function loadPendingCashCounts(_limit: number): Promise<CashCount[]> {
+  return [];
+}
+
+export async function countPendingCashCounts(): Promise<number> {
+  return 0;
+}
+
+export async function countBlockedCashCounts(): Promise<number> {
+  return 0;
+}
+
+export async function countBlockedCashCountsForRun(_runId: string): Promise<number> {
+  return 0;
+}
+
+export async function countSyncedCashCounts(): Promise<number> {
+  return 0;
+}
+
+export async function bumpCashCountAttempts(_runId: string): Promise<number> {
+  return 0;
+}
+
+export async function markCashCountBlocked(_runId: string): Promise<void> {}
+
+export async function retryBlockedCashCounts(): Promise<number> {
+  return 0;
+}
+
+export async function markCashCountSynced(_runId: string, _updatedAt: number): Promise<void> {}
+
+export async function markCashCountLegacy(_runId: string): Promise<void> {}

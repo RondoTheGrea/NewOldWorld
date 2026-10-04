@@ -1,6 +1,8 @@
 import {
   collection,
   collectionGroup,
+  doc,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -224,6 +226,57 @@ export type RunExpense = {
   deleted: boolean;
 };
 
+/** The bills the phone counts one by one, largest first — the order every table lists them. */
+export const BillDenominations = [1000, 500, 200, 100, 50, 20] as const;
+export type BillDenomination = (typeof BillDenominations)[number];
+
+/**
+ * The run's cash breakdown — the bills the driver counted at the end of the
+ * trip, plus coins as one amount. One per run, at
+ * `runs/{runId}/cashCounts/{runId}`, overwritten each time the driver re-saves
+ * (see `uploadCashCount` in apps/mobile/src/lib/sync.ts).
+ *
+ * Like expenses, it is set beside the takings, never inside them: nothing on
+ * this dashboard changes a sales, net or collected figure because of it. The
+ * one place it is compared against anything is `compareCashCount`.
+ */
+export type RunCashCount = {
+  bills: Record<BillDenomination, number>;
+  coins: number;
+  /** As the phone added it up — the figure the driver saw. */
+  total: number;
+  /** When the driver last saved it. */
+  updatedAt: number;
+};
+
+/**
+ * The breakdown set against the receipts, the same sum the phone's Breakdown
+ * tab shows: cash from receipts (cash receipts + down payments on partial
+ * ones), minus expenses, = expected; the counted total against that.
+ *
+ * `difference` is counted − expected: negative is short, positive is over.
+ * The expense subtraction lives here and nowhere else on the dashboard.
+ */
+export function compareCashCount(
+  collected: Pick<CollectedTotals, 'cash' | 'partialPaid'>,
+  expenseTotal: number,
+  counted: number,
+) {
+  const cashFromReceipts = round2(collected.cash + collected.partialPaid);
+  const expected = round2(cashFromReceipts - expenseTotal);
+  return { cashFromReceipts, expected, difference: round2(counted - expected) };
+}
+
+/** "Short by ₱110.00" / "Exact" / "Over by ₱40.00" — the phone's own words. */
+export function describeCashDifference(difference: number): string {
+  if (difference === 0) return 'Exact';
+  return difference < 0 ? `Short by ${formatMoney(-difference)}` : `Over by ${formatMoney(difference)}`;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 /**
  * `'void'` is a voided receipt's bread going back on the truck: that receipt's
  * sale, with the same quantities stored positive. It is not a delivery, so it
@@ -343,6 +396,18 @@ function readExpense(id: string, data: Record<string, unknown>): RunExpense {
     notes: asString(data.notes),
     createdAt: asNumber(data.createdAt),
     deleted: data.deleted === true,
+  };
+}
+
+function readCashCount(data: Record<string, unknown>): RunCashCount {
+  const raw = (data.bills ?? {}) as Record<string, unknown>;
+  const bills = {} as Record<BillDenomination, number>;
+  for (const denomination of BillDenominations) bills[denomination] = asNumber(raw[String(denomination)]);
+  return {
+    bills,
+    coins: asNumber(data.coins),
+    total: asNumber(data.total),
+    updatedAt: asNumber(data.updatedAt),
   };
 }
 
@@ -545,6 +610,28 @@ export function watchRunExpenses(
     },
     onError,
   );
+}
+
+/**
+ * Live-subscribes to one run's cash breakdown — `null` until the driver has
+ * saved one (or while it hasn't reached the server yet).
+ */
+export function watchRunCashCount(
+  runId: string,
+  callback: (count: RunCashCount | null) => void,
+  onError: (error: Error) => void,
+) {
+  return onSnapshot(
+    doc(db, 'runs', runId, 'cashCounts', runId),
+    (snapshot) => callback(snapshot.exists() ? readCashCount(snapshot.data()) : null),
+    onError,
+  );
+}
+
+/** One run's cash breakdown, read once — the period export's counterpart to the listener above. */
+export async function fetchRunCashCount(runId: string): Promise<RunCashCount | null> {
+  const snapshot = await getDoc(doc(db, 'runs', runId, 'cashCounts', runId));
+  return snapshot.exists() ? readCashCount(snapshot.data()) : null;
 }
 
 /**

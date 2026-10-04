@@ -36,6 +36,7 @@ import { fetchPaymentProofImage, type PaymentProofImage } from '@/lib/payment-pr
 import { buildNameFor, buildOutcomeRows, compareBreadNames } from '@/lib/run-outcome';
 import { type ReturnedBreadType } from '@/lib/returned-bread-types';
 import {
+  BillDenominations,
   isVoided,
   runAgentNames,
   totalCollected,
@@ -43,6 +44,7 @@ import {
   totalReceipts,
   totalStock,
   type Run,
+  type RunCashCount,
   type RunExpense,
   type RunReceipt,
   type RunStockEntry,
@@ -266,6 +268,8 @@ export type ExportRunExcelInput = {
   receipts: RunReceipt[];
   entries: RunStockEntry[];
   expenses: RunExpense[];
+  /** The run's cash breakdown, or null when none was saved — the Breakdown sheet says so. */
+  cashCount: RunCashCount | null;
   breadTypes: BreadType[];
   /**
    * The old-price catalog, in its own manual order — what places a returned
@@ -282,7 +286,7 @@ export type ExportRunExcelInput = {
  * recalculate.
  */
 export async function exportRunToExcel(input: ExportRunExcelInput): Promise<void> {
-  const { run, receipts, entries, expenses, breadTypes, returnedBreadTypes } = input;
+  const { run, receipts, entries, expenses, cashCount, breadTypes, returnedBreadTypes } = input;
   const totals = totalReceipts(receipts);
   const stock = totalStock(entries);
   const spend = totalExpenses(expenses);
@@ -329,6 +333,9 @@ export async function exportRunToExcel(input: ExportRunExcelInput): Promise<void
     photoBlocks.length > 0
       ? workbook.addWorksheet('Photos', { views: [{ state: 'frozen', ySplit: 1 }] })
       : null;
+  // The very last tab, on the owner's call — after Photos too. Always present,
+  // so a run without a breakdown says so rather than the tab going missing.
+  const breakdownSheet = workbook.addWorksheet('Breakdown');
 
   // --- Receipts (built first so Summary can reference row ranges) ---
   const receiptHeaders = [
@@ -713,6 +720,79 @@ export async function exportRunToExcel(input: ExportRunExcelInput): Promise<void
   }
   outlineRange(expensesSheet, 1, 1, expenseTotalRow ?? 1, 4);
   autoWidth(expensesSheet);
+
+  // --- Breakdown ---
+  //
+  // The cash the agents counted at the end of the trip, bill by bill, then the
+  // phone's own comparison underneath: cash from receipts − expenses =
+  // expected, against the breakdown total. Formulas throughout, pointing at the
+  // Collected and Expenses sheets, so an edit there moves the verdict here.
+  // Amounts sit in column C in both blocks so they read as one column.
+  if (cashCount) {
+    breakdownSheet.addRow(['Bill', 'Count', 'Amount']);
+    styleHeaderRow(breakdownSheet, 1, 3);
+    BillDenominations.forEach((denomination, index) => {
+      const row = index + 2;
+      breakdownSheet.addRow([`₱${denomination.toLocaleString('en-US')}`, cashCount.bills[denomination], {
+        formula: `${denomination}*B${row}`,
+      }]);
+      breakdownSheet.getCell(row, 2).numFmt = CountFormat;
+      breakdownSheet.getCell(row, 3).numFmt = MoneyFormat;
+    });
+    const coinsRow = BillDenominations.length + 2;
+    breakdownSheet.addRow(['Coins', '', cashCount.coins]);
+    breakdownSheet.getCell(coinsRow, 3).numFmt = MoneyFormat;
+    const countedRow = coinsRow + 1;
+    breakdownSheet.addRow(['Breakdown total', '', { formula: `SUM(C2:C${coinsRow})` }]);
+    styleTotalRow(breakdownSheet, countedRow, 3);
+    breakdownSheet.getCell(countedRow, 3).numFmt = MoneyFormat;
+    outlineRange(breakdownSheet, 1, 1, countedRow, 3);
+
+    // Collected!B2 is Cash and B6 is Partial — paid so far (see collectedRows).
+    const cashRow = countedRow + 2;
+    const expenseRow = cashRow + 1;
+    const expectedRow = cashRow + 2;
+    const totalRow = cashRow + 3;
+    const verdictRow = cashRow + 4;
+    breakdownSheet.getCell(cashRow, 1).value = 'Cash from receipts';
+    breakdownSheet.getCell(cashRow, 3).value = { formula: 'Collected!B2+Collected!B6' };
+    breakdownSheet.getCell(expenseRow, 1).value = 'Expense';
+    breakdownSheet.getCell(expenseRow, 3).value = expenseTotalRow
+      ? { formula: `-Expenses!D${expenseTotalRow}` }
+      : -spend.total;
+    breakdownSheet.getCell(expectedRow, 1).value = 'Expected';
+    breakdownSheet.getCell(expectedRow, 3).value = { formula: `C${cashRow}+C${expenseRow}` };
+    breakdownSheet.getCell(totalRow, 1).value = 'Breakdown total';
+    breakdownSheet.getCell(totalRow, 3).value = { formula: `C${countedRow}` };
+    for (let row = cashRow; row <= totalRow; row++) breakdownSheet.getCell(row, 3).numFmt = MoneyFormat;
+    // The phone's three words. Rounded before comparing so float noise from
+    // the sums above can't turn an exact count into "Short by ₱0.00".
+    const diff = `ROUND(C${totalRow}-C${expectedRow},2)`;
+    const verdict = breakdownSheet.getCell(verdictRow, 3);
+    verdict.value = {
+      formula: `IF(${diff}=0,"Exact",IF(${diff}<0,"Short by ₱"&TEXT(-${diff},"#,##0.00"),"Over by ₱"&TEXT(${diff},"#,##0.00")))`,
+    };
+    verdict.alignment = { horizontal: 'right' };
+    verdict.font = { bold: true };
+    // The heavy rule above the verdict, as on the phone and the dashboard.
+    for (let col = 1; col <= 3; col++) {
+      breakdownSheet.getCell(verdictRow, col).border = { top: { style: 'medium', color: { argb: 'FF0F172A' } } };
+    }
+    outlineRange(breakdownSheet, cashRow, 1, verdictRow, 3);
+    autoWidth(breakdownSheet);
+    [
+      `Saved on the phone at ${formatBusinessTime(cashCount.updatedAt)} (Manila).`,
+      'Cash from receipts is cash receipts plus down payments on partial ones. Expenses are taken off here only, to work out the cash expected in hand — not from sales or net anywhere else in this file.',
+    ].forEach((note, index) => {
+      const cell = breakdownSheet.getCell(verdictRow + 2 + index, 1);
+      cell.value = note;
+      cell.font = NoteFont;
+    });
+  } else {
+    breakdownSheet.getCell(1, 1).value = 'No cash breakdown was saved for this run.';
+    breakdownSheet.getCell(1, 1).font = NoteFont;
+    breakdownSheet.getColumn(1).width = 44;
+  }
 
   // --- Summary ---
   //

@@ -116,8 +116,8 @@ function HomeScreenContent() {
 
       <RunHistoryCard />
 
-      {/* Above "End the day", because it is something the driver adds to during
-          the trip and that one is what finishes it. */}
+      {/* Breakdown & Expenses. Above "End the day", because it is something the
+          driver adds to during the trip and that one is what finishes it. */}
       <ExpensesCard />
 
       <EndDayCard />

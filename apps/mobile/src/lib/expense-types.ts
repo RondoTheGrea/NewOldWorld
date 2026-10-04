@@ -20,7 +20,7 @@ export type Expense = {
   /** The run this was spent on. Never null — an expense with no run can't be filed. */
   runId: string;
   title: string;
-  /** Pesos, to the centavo. Always positive: this is an amount spent, not a signed delta. */
+  /** Pesos, to the centavo. Zero or more — never negative: this is an amount spent, not a signed delta. */
   amount: number;
   /** Free text, or '' — the field is optional. */
   notes: string;
@@ -60,11 +60,13 @@ export const ExpenseFieldLimits = {
 export const MaxExpenseAmount = 1_000_000;
 
 /**
- * Rounds to the centavo and rejects anything that isn't a real, positive
- * amount — `NaN` from a half-typed field, a negative, an infinity.
+ * Rounds to the centavo and turns anything that isn't a real, non-negative
+ * amount — `NaN`, a negative, an infinity — into 0, so a bad amount can never
+ * reach the database as anything but zero.
  *
- * Returns 0 for all of those, and 0 is what the form treats as "not valid yet",
- * so a bad amount can never reach the database.
+ * 0 itself is a valid expense amount. The form does its own "has an amount
+ * actually been typed?" check rather than treating 0 as "not valid yet", which
+ * is what it used to do.
  */
 export function normalizeExpenseAmount(amount: number): number {
   if (!Number.isFinite(amount) || amount <= 0) return 0;

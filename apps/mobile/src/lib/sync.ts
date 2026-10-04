@@ -22,6 +22,7 @@ import { logError } from '@/lib/errors';
 import { appCheckTokenObtainable, db, recentAppCheckFailure, storage } from '@/lib/firebase';
 import type { PendingPaymentProof } from '@/lib/receipt-db';
 import type { PendingReceipt } from '@/lib/receipt-types';
+import { cashCountTotal, type CashCount } from '@/lib/cash-count';
 import type { PendingExpense } from '@/lib/expense-db';
 import type { Batch } from '@/lib/stock-types';
 import { SchemaVersion, composeRunId, type RunContext, type RunManifest, type RunStamp } from '@/lib/sync-types';
@@ -46,6 +47,7 @@ const RunsCollection = 'runs';
 const StockEntriesCollection = 'stockEntries';
 const ReceiptsCollection = 'receipts';
 const ExpensesCollection = 'expenses';
+const CashCountsCollection = 'cashCounts';
 const CustomersCollection = 'customers';
 
 /** How far back a device that has never pulled starts from. Epoch = everything. */
@@ -860,6 +862,44 @@ export async function uploadExpense(stamp: RunStamp, expense: PendingExpense): P
       uploadedAt: serverTimestamp(),
     },
     { merge: true }
+  ));
+}
+
+/**
+ * The run's cash breakdown — the bills the driver counted, plus coins.
+ *
+ * One document per run, at `runs/{runId}/cashCounts/{runId}`: the id is the
+ * run's own, so every re-save overwrites the same document (the setDoc-at-a-
+ * known-id rule this file is built on) and the dashboard reads exactly one
+ * place. A child of the run like an expense, so the existing `/runs/**` rule
+ * covers it with no change to firestore.rules.
+ *
+ * Overwritten, not merged: a recount replaces the whole count, and a merge
+ * could only ever leave a stale field behind.
+ *
+ * `total` is sent alongside the bills so the dashboard shows the figure the
+ * driver saw rather than re-adding it — the bills are there to check it by.
+ */
+export async function uploadCashCount(stamp: RunStamp, count: CashCount): Promise<void> {
+  await withTimeout('send the cash breakdown', setDoc(
+    doc(db, RunsCollection, stamp.runId, CashCountsCollection, stamp.runId),
+    {
+      schemaVersion: SchemaVersion,
+      bills: {
+        '1000': count.bills[1000],
+        '500': count.bills[500],
+        '200': count.bills[200],
+        '100': count.bills[100],
+        '50': count.bills[50],
+        '20': count.bills[20],
+      },
+      coins: count.coins,
+      total: cashCountTotal(count),
+      updatedAt: count.updatedAt,
+      businessDay: businessDayKey(count.updatedAt),
+      ...stampFields(stamp),
+      uploadedAt: serverTimestamp(),
+    }
   ));
 }
 

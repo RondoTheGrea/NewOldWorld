@@ -1,5 +1,6 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 
+import { sanitizeCashCountInput, type CashCount, type CashCountInput } from '@/lib/cash-count';
 import { sanitizeExpenseInput, type Expense, type ExpenseInput } from '@/lib/expense-types';
 import { generateId } from '@/lib/id';
 
@@ -49,8 +50,33 @@ function getDb(): Promise<SQLiteDatabase> {
           ON expenses(run_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_expenses_pending
           ON expenses(created_at) WHERE sync_state = 'pending';
-        PRAGMA user_version = 1;
       `);
+      // The cash count (lib/cash-count.ts) lives in this file because it is
+      // the other half of the same Home card, and like an expense it is scoped
+      // to the run. Version 2 adds it. `CREATE TABLE IF NOT EXISTS` is safe to
+      // run on every open, on a new install and on a version-1 one alike, so
+      // this needs no separate migration step.
+      //
+      // One row per run, overwritten on save: it is a snapshot of the bag, not
+      // a log. One column per bill rather than a JSON blob so it can be summed
+      // in SQL if that is ever wanted, and so a typo in a key can't silently
+      // lose a denomination.
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS cash_counts (
+          run_id TEXT PRIMARY KEY,
+          bills_1000 INTEGER NOT NULL,
+          bills_500 INTEGER NOT NULL,
+          bills_200 INTEGER NOT NULL,
+          bills_100 INTEGER NOT NULL,
+          bills_50 INTEGER NOT NULL,
+          bills_20 INTEGER NOT NULL,
+          coins REAL NOT NULL,
+          updated_at INTEGER NOT NULL,
+          sync_state TEXT NOT NULL DEFAULT 'pending',
+          sync_attempts INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+      await migrateCashCountSync(db);
       return db;
     });
     dbPromise = dbPromise.catch((error: unknown) => {
@@ -62,6 +88,31 @@ function getDb(): Promise<SQLiteDatabase> {
     });
   }
   return dbPromise;
+}
+
+/**
+ * Version 3: the cash count uploads now, so its rows get the same
+ * `sync_state` / `sync_attempts` pair every uploadable row has.
+ *
+ * Version 2 created the table without them, and `CREATE TABLE IF NOT EXISTS`
+ * leaves an existing table exactly as it was — so a phone that ran version 2
+ * needs the columns added. Checked against the table itself rather than trusted
+ * to the version number alone, so a half-finished earlier attempt can't make it
+ * add a column twice (which SQLite refuses). Existing counts arrive 'pending'
+ * and upload on the next pass, which is what they should do.
+ */
+async function migrateCashCountSync(db: SQLiteDatabase): Promise<void> {
+  const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  if ((version?.user_version ?? 0) >= 3) return;
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(cash_counts)');
+  const has = (name: string) => columns.some((column) => column.name === name);
+  if (!has('sync_state')) {
+    await db.execAsync("ALTER TABLE cash_counts ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'pending'");
+  }
+  if (!has('sync_attempts')) {
+    await db.execAsync('ALTER TABLE cash_counts ADD COLUMN sync_attempts INTEGER NOT NULL DEFAULT 0');
+  }
+  await db.execAsync('PRAGMA user_version = 3');
 }
 
 type ExpenseRow = {
@@ -180,6 +231,183 @@ export async function deleteExpenseRow(id: string): Promise<void> {
     now,
     id
   );
+}
+
+// ---------------------------------------------------------------------------
+// Cash count
+// ---------------------------------------------------------------------------
+
+type CashCountRow = {
+  run_id: string;
+  bills_1000: number;
+  bills_500: number;
+  bills_200: number;
+  bills_100: number;
+  bills_50: number;
+  bills_20: number;
+  coins: number;
+  updated_at: number;
+};
+
+/** This run's cash count, or null if the driver hasn't saved one yet. */
+export async function loadCashCountForRun(runId: string): Promise<CashCount | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<CashCountRow>('SELECT * FROM cash_counts WHERE run_id = ?', runId);
+  return row ? rowToCashCount(row) : null;
+}
+
+function rowToCashCount(row: CashCountRow): CashCount {
+  return {
+    runId: row.run_id,
+    bills: {
+      1000: row.bills_1000,
+      500: row.bills_500,
+      200: row.bills_200,
+      100: row.bills_100,
+      50: row.bills_50,
+      20: row.bills_20,
+    },
+    coins: row.coins,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Saves this run's cash count, replacing any earlier one, and queues it to upload.
+ *
+ * An upsert keyed on the run, so it is naturally idempotent: a retry of a save
+ * that had actually committed writes the same numbers again and nothing else.
+ * Every save goes back to 'pending' with the attempt counter cleared — those
+ * counts were about the version that failed, and this is a new one.
+ */
+export async function saveCashCountForRun(runId: string, input: CashCountInput): Promise<CashCount> {
+  const db = await getDb();
+  const clean = sanitizeCashCountInput(input);
+  const now = Date.now();
+  await db.runAsync(
+    `INSERT INTO cash_counts (run_id, bills_1000, bills_500, bills_200, bills_100, bills_50, bills_20, coins, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(run_id) DO UPDATE SET
+       bills_1000 = excluded.bills_1000,
+       bills_500 = excluded.bills_500,
+       bills_200 = excluded.bills_200,
+       bills_100 = excluded.bills_100,
+       bills_50 = excluded.bills_50,
+       bills_20 = excluded.bills_20,
+       coins = excluded.coins,
+       updated_at = excluded.updated_at,
+       sync_state = 'pending',
+       sync_attempts = 0`,
+    runId,
+    clean.bills[1000],
+    clean.bills[500],
+    clean.bills[200],
+    clean.bills[100],
+    clean.bills[50],
+    clean.bills[20],
+    clean.coins,
+    now
+  );
+  return { ...clean, runId, updatedAt: now };
+}
+
+/** True when this run has at least one expense still standing — one of the two things "End the Day" asks for. */
+export async function runHasExpense(runId: string): Promise<boolean> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ found: number }>(
+    'SELECT EXISTS(SELECT 1 FROM expenses WHERE run_id = ? AND deleted = 0) AS found',
+    runId
+  );
+  return row?.found === 1;
+}
+
+// Cash count sync — the same queue shape as expenses below, keyed on the run
+// because there is one count per run. See drainCashCounts in context/sync.tsx.
+
+/** Cash counts not yet pushed to Firestore, oldest change first, capped. */
+export async function loadPendingCashCounts(limit: number): Promise<CashCount[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<CashCountRow>(
+    "SELECT * FROM cash_counts WHERE sync_state = 'pending' ORDER BY updated_at ASC LIMIT ?",
+    limit
+  );
+  return rows.map(rowToCashCount);
+}
+
+export async function countPendingCashCounts(): Promise<number> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ count: number }>(
+    "SELECT COUNT(*) AS count FROM cash_counts WHERE sync_state = 'pending'"
+  );
+  return row?.count ?? 0;
+}
+
+export async function countBlockedCashCounts(): Promise<number> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ count: number }>(
+    "SELECT COUNT(*) AS count FROM cash_counts WHERE sync_state = 'blocked'"
+  );
+  return row?.count ?? 0;
+}
+
+export async function countBlockedCashCountsForRun(runId: string): Promise<number> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ count: number }>(
+    "SELECT COUNT(*) AS count FROM cash_counts WHERE sync_state = 'blocked' AND run_id = ?",
+    runId
+  );
+  return row?.count ?? 0;
+}
+
+export async function countSyncedCashCounts(): Promise<number> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ count: number }>(
+    "SELECT COUNT(*) AS count FROM cash_counts WHERE sync_state = 'synced'"
+  );
+  return row?.count ?? 0;
+}
+
+export async function bumpCashCountAttempts(runId: string): Promise<number> {
+  const db = await getDb();
+  await db.runAsync('UPDATE cash_counts SET sync_attempts = sync_attempts + 1 WHERE run_id = ?', runId);
+  const row = await db.getFirstAsync<{ sync_attempts: number }>(
+    'SELECT sync_attempts FROM cash_counts WHERE run_id = ?',
+    runId
+  );
+  return row?.sync_attempts ?? 0;
+}
+
+export async function markCashCountBlocked(runId: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("UPDATE cash_counts SET sync_state = 'blocked' WHERE run_id = ?", runId);
+}
+
+export async function retryBlockedCashCounts(): Promise<number> {
+  const db = await getDb();
+  const result = await db.runAsync(
+    "UPDATE cash_counts SET sync_state = 'pending', sync_attempts = 0 WHERE sync_state = 'blocked'"
+  );
+  return result.changes;
+}
+
+/**
+ * Marks a count synced, but only if it hasn't been re-saved since the upload
+ * started — the same `updated_at` guard as markExpenseSynced. A driver can
+ * recount while the previous count is in the air, and an unguarded mark would
+ * record the *new* count as uploaded when the server holds the old one.
+ */
+export async function markCashCountSynced(runId: string, updatedAt: number): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    "UPDATE cash_counts SET sync_state = 'synced' WHERE run_id = ? AND updated_at = ?",
+    runId,
+    updatedAt
+  );
+}
+
+export async function markCashCountLegacy(runId: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("UPDATE cash_counts SET sync_state = 'legacy' WHERE run_id = ?", runId);
 }
 
 // ---------------------------------------------------------------------------

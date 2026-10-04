@@ -662,7 +662,9 @@ count moves so the line updates while the modal is open.
 ## Expenses
 
 What the truck spent on a trip out — fuel, a toll, the agents' lunch. A title, an
-amount, and optional notes, and nothing else. `lib/expense-types.ts` (shape +
+amount, and optional notes, and nothing else. The amount may be **₱0** (the
+owner's call), but it can't be left blank — a blank is a forgotten amount. It shares its Home card and sheet
+with the **cash count** — see the subsection below. `lib/expense-types.ts` (shape +
 sanitizer), `lib/expense-db.ts` (+ `.web.ts` stub, `expenses.db`),
 `context/expenses.tsx`, and two components: `components/expenses-card.tsx` on
 Home and `components/expenses-modal.tsx` behind it.
@@ -703,6 +705,73 @@ on `ReceiptTotals`, so it isn't one keystroke away from every net on the page.
   the same key-the-user's-action rule `addBatch` follows: two identical ₱50
   tolls in a day are ordinary, so nothing in the row can tell a repeat from a
   second expense.
+
+### The cash breakdown (shares the card)
+
+Called **Breakdown** on screen (tab, card row, buttons); "cash count" in the
+code.
+
+The bills the driver is actually holding: how many ₱1,000 / ₱500 / ₱200 /
+₱100 / ₱50 / ₱20, plus coins as **one peso amount** (nobody counts ₱1 coins one
+by one). `lib/cash-count.ts` (shape, caps, total), a `cash_counts` table in
+`expenses.db` (`loadCashCountForRun` / `saveCashCountForRun`),
+`components/cash-count-panel.tsx`, and the same `ExpensesProvider`.
+
+- **One card, two halves.** Home had no room for another card, so the owner
+  asked for the count to share the Expenses one. The card (and the sheet) is titled
+  **Breakdown & Expenses** and has a tappable row for each ("Breakdown", "Expenses"); each
+  opens the same sheet on its own tab. The file names (`expenses-card.tsx`,
+  `expenses-modal.tsx`) were kept to keep the diff small.
+- **The comparison is why they belong together.** The panel shows *Cash from
+  receipts* (cash receipts + down payments on partial ones, read with
+  `summarizeRunHistoryForRun`), *minus expenses*, and compares what's left with
+  the counted Total. Subtracting expenses is
+  deliberate — a diesel stop paid out of the bag is the commonest reason the bag
+  is light — and it is **arithmetic on that screen only**. It does not touch a
+  receipt, the takings, the manifest or anything on the dashboard; the
+  "expenses are informational" rule above still holds everywhere else.
+- **One count per run, overwritten on save** — a snapshot of the bag, not a log.
+  An upsert keyed on `run_id`, so a retried save is harmless. Scoped to the run
+  like everything else, so "End the Day" hands the next trip a blank count.
+- **A draft until "Save breakdown"**, with no confirmation (it stays freely
+  editable, like "Edit Inventory Draft"). The sheet **no longer closes on a tap
+  outside** now that it holds a typed count, and the ✕ / Android back ask
+  "Close without saving the breakdown?" when the typed numbers differ from the
+  saved ones. That dialog uses `ConfirmDialog`'s `preferCancel`: **Keep
+  counting** is the filled green button on the right and Close is the outline
+  on the left — the buttons' *jobs* are not swapped, so a tap outside the dialog
+  still keeps counting. The panel carries no explanatory notes; the owner asked
+  for them off. The count panel stays mounted (just hidden) while the Expenses tab is
+  showing, so a look at the expense list doesn't lose a half-typed count.
+- **The comparison box is the owner's layout**: *Cash from receipts*,
+  *Expense* (shown with a minus — it *is* subtracted, on this screen),
+  *Expected* (cash minus expense), *Breakdown total*, then **Short by ₱X /
+  Exact / Over by ₱X** right-aligned under a heavy divider. Keep *Expected*:
+  without it the Breakdown total sits under the expense and reads as the answer
+  to the subtraction. The owner removed a "Counted" row, and a "Cash after
+  expenses" total that briefly sat at the bottom of the Expenses tab — don't
+  add them back. `useRunCashSales` reads the receipts' cash once, in the sheet.
+- **The number boxes are `CountInput`**, which leaves out `selectTextOnFocus`
+  (on Android it re-selects an empty box's first digit, so the second keypress
+  overwrote it) and hides the grey hint while a box is focused (Android puts a
+  centred empty box's cursor at the hint's edge, not the middle). Don't add
+  either back.
+- **It uploads, live, like an expense.** Every save sets the row back to
+  `'pending'` and nudges sync; `drainCashCounts` (after expenses) sends it to
+  `runs/{runId}/cashCounts/{runId}` via `uploadCashCount`. One document per
+  run at the run's own id, overwritten on each re-save. The existing `/runs/**`
+  rule covers it — no `firestore.rules` change. It is counted in the pending /
+  blocked / synced figures as "cash breakdown", so "End the day" waits for it
+  like anything else. `expenses.db` went to `user_version = 3` to add the sync
+  columns to phones that already had the version-2 table
+  (`migrateCashCountSync`).
+- **"End the day" needs at least one expense and a saved breakdown** (the
+  owner's rule). `findMissingCloseout` checks both, first in `end-day-card.tsx`
+  before the confirmation and again inside `endTheDay` as the backstop, and
+  `MissingCloseoutError` is reported once with an OK rather than "Try again" —
+  like an open draft, it is a rule, not a glitch. A ₱0 expense satisfies it,
+  which is why ₱0 expenses are allowed. The message names the card and says to
+  record ₱0 if nothing was spent.
 
 ## Printing receipts
 
@@ -825,10 +894,15 @@ default). OldWorld's `phoneNumber` is `phone` here.
 
 **The detail modal carries OldWorld's "Purchase History"**
 (`components/purchase-history.tsx`): the store's finalized receipts *on this
-phone*, newest first, ten at a time with Load More, each tapping open to its
-lines, returns and totals (`loadCustomerReceiptPage` in `lib/receipt-db.ts`,
-via `loadCustomerReceipts` on the receipts context). Voided receipts are listed
-and marked. Old OldWorld receipts were deliberately not migrated, so a migrated
+phone*, newest first, ten at a time with Load More (`loadCustomerReceiptPage`
+in `lib/receipt-db.ts`, via `loadCustomerReceipts` on the receipts context).
+**Each row is the Receipts tab's own row** (`components/receipt-row.tsx`, shared
+by both lists) and a tap opens **the same `ReceiptDetailModal`** the Receipts
+tab opens, stacked over the profile — so Preview/print, the proof photo and Void
+(open run only) all work from here too. Keep the two lists on the one component
+rather than restyling either. `onEdit` is optional on the modal because the
+history only ever holds finalized receipts. Voided receipts are listed and
+marked. Old OldWorld receipts were deliberately not migrated, so a migrated
 store starts with an empty history; the dashboard's Stores tab is where every
 truck's receipts for a store are seen together.
 

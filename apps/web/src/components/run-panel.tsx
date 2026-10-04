@@ -7,8 +7,12 @@ import { businessDayKey, formatBusinessDayShort, formatBusinessTime, formatDurat
 import { type BreadType } from '@/lib/bread-types';
 import { buildNameFor, buildOutcomeRows } from '@/lib/run-outcome';
 import { type ReturnedBreadType } from '@/lib/returned-bread-types';
+import { useDragScroll } from '@/lib/use-drag-scroll';
 import {
+  BillDenominations,
+  compareCashCount,
   countBusinessDays,
+  describeCashDifference,
   describeRunEnd,
   formatCount,
   formatMoney,
@@ -19,6 +23,7 @@ import {
   totalReceipts,
   totalStock,
   type Run,
+  type RunCashCount,
   type RunExpense,
   type RunReceipt,
   type RunStockEntry,
@@ -45,6 +50,7 @@ export function RunPanel({
   receipts,
   entries,
   expenses,
+  cashCount,
   breadTypes,
   returnedBreadTypes,
   now,
@@ -67,6 +73,12 @@ export function RunPanel({
   entries: RunStockEntry[] | null;
   /** This run's expenses, or `null` while they are still arriving — same contract as the two above. */
   expenses: RunExpense[] | null;
+  /**
+   * This run's cash breakdown: `undefined` while the board's listener hasn't
+   * answered, `null` once it has and the driver hasn't saved one (or it hasn't
+   * reached the server yet).
+   */
+  cashCount: RunCashCount | null | undefined;
   /**
    * The bread catalog, already in the dashboard's own manual order (see
    * `watchBreadTypes`). Both the order and the names are used: the Inventory
@@ -134,10 +146,12 @@ export function RunPanel({
    * of leaving a stale copy pinned open.
    */
   const [openReceiptId, setOpenReceiptId] = useState<string | null>(null);
-  /** Which of the five activity tables is showing. Receipts first — it's the one read most. */
-  const [activityTab, setActivityTab] = useState<'receipts' | 'inventory' | 'outcome' | 'collected' | 'expenses'>(
-    'receipts',
-  );
+  /** Which of the six activity tables is showing. Receipts first — it's the one read most. */
+  const [activityTab, setActivityTab] = useState<
+    'receipts' | 'inventory' | 'outcome' | 'collected' | 'expenses' | 'breakdown'
+  >('receipts');
+  /** Wheel and drag scrolling for the tab strip — six tabs overflow the drawer. */
+  const subtabsRef = useDragScroll<HTMLDivElement>();
   /** Agents/times/who's-signed-in and the run id — closed by default, since
    * nobody opens a run to read these; they're there for the one time someone
    * does. */
@@ -387,6 +401,13 @@ export function RunPanel({
 
   const loading = receipts === null || entries === null || expenses === null;
 
+  /**
+   * The Breakdown tab's sum — the same one the phone shows: cash from receipts,
+   * minus expenses, = expected, against what was counted. The one place this
+   * panel takes expenses off anything, and it is a comparison, not a total.
+   */
+  const cashCompare = cashCount ? compareCashCount(collected, spend.total, cashCount.total) : null;
+
   const handleExport = async () => {
     if (loading || exporting) return;
     setExporting(true);
@@ -399,6 +420,7 @@ export function RunPanel({
         receipts: receipts ?? [],
         entries: entries ?? [],
         expenses: expenses ?? [],
+        cashCount: cashCount ?? null,
         breadTypes,
         returnedBreadTypes,
       });
@@ -509,7 +531,10 @@ export function RunPanel({
                 Expenses are one tap away rather than always-visible sections,
                 so a long receipt feed no longer pushes all four (and Run
                 details, Reference) far down the drawer to scroll past. */}
-            <div className="ops-subtabs" role="tablist">
+            {/* Scrolls sideways when the six tabs overflow the drawer — by
+                touch natively, and by mouse wheel or click-and-drag through
+                useDragScroll. */}
+            <div className="ops-subtabs" role="tablist" ref={subtabsRef}>
               <button
                 type="button"
                 role="tab"
@@ -550,11 +575,19 @@ export function RunPanel({
                 onClick={() => setActivityTab('expenses')}>
                 Expenses
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activityTab === 'breakdown'}
+                className={activityTab === 'breakdown' ? 'ops-subtab active' : 'ops-subtab'}
+                onClick={() => setActivityTab('breakdown')}>
+                Breakdown
+              </button>
             </div>
 
-            {/* All five panels stay mounted, stacked in one grid cell (see
+            {/* All six panels stay mounted, stacked in one grid cell (see
                 .ops-tabpanels): the inactive ones are only hidden, not
-                unmounted, so the grid row sizes to the tallest of the five.
+                unmounted, so the grid row sizes to the tallest of the six.
                 Without this, switching to a shorter tab shrinks the section
                 and everything below it — Run details, the drawer's bottom
                 edge — jumps up underneath the cursor. */}
@@ -821,6 +854,94 @@ export function RunPanel({
                   Recorded by the agents as a note about the trip. Expenses are not deducted from the sales, the net, or
                   anything on the Trends tab.
                 </p>
+              </div>
+
+              <div className={activityTab === 'breakdown' ? 'ops-tabpanel active' : 'ops-tabpanel'} role="tabpanel">
+                {loading || cashCount === undefined ? (
+                  <p className="ops-muted">Loading…</p>
+                ) : cashCount === null || cashCompare === null ? (
+                  <p className="ops-muted">
+                    No cash breakdown has arrived from this run yet. The agents save it on the phone&apos;s Breakdown
+                    &amp; Expenses card, and the day can&apos;t be ended without one.
+                  </p>
+                ) : (
+                  <>
+                    <table className="ops-table">
+                      <thead>
+                        <tr>
+                          <th>Bill</th>
+                          <th className="ops-num">Count</th>
+                          <th className="ops-num">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {BillDenominations.map((denomination) => (
+                          <tr key={denomination}>
+                            <td>₱{formatCount(denomination)}</td>
+                            <td className="ops-num">{formatCount(cashCount.bills[denomination])}</td>
+                            <td className="ops-num">{formatMoney(denomination * cashCount.bills[denomination])}</td>
+                          </tr>
+                        ))}
+                        <tr>
+                          <td>Coins</td>
+                          <td className="ops-num ops-muted">—</td>
+                          <td className="ops-num">{formatMoney(cashCount.coins)}</td>
+                        </tr>
+                        <tr>
+                          <td colSpan={2}>
+                            <b>Breakdown total</b>
+                          </td>
+                          <td className="ops-num">
+                            <b>{formatMoney(cashCount.total)}</b>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    {/* Laid out as the phone lays it out, line for line, so a
+                        manager on the phone with a driver is reading the same
+                        sum. "Expected" stays: without it the breakdown total
+                        sits under the expense and reads as its answer. */}
+                    <table className="ops-table ops-cash-compare">
+                      <tbody>
+                        <tr>
+                          <td>Cash from receipts</td>
+                          <td className="ops-num">{formatMoney(cashCompare.cashFromReceipts)}</td>
+                        </tr>
+                        <tr>
+                          <td>Expense</td>
+                          <td className="ops-num">−{formatMoney(spend.total)}</td>
+                        </tr>
+                        <tr>
+                          <td>Expected</td>
+                          <td className="ops-num">{formatMoney(cashCompare.expected)}</td>
+                        </tr>
+                        <tr>
+                          <td>Breakdown total</td>
+                          <td className="ops-num">{formatMoney(cashCount.total)}</td>
+                        </tr>
+                        <tr className="ops-cash-verdict">
+                          <td
+                            colSpan={2}
+                            className={
+                              cashCompare.difference === 0
+                                ? 'ops-num ops-cash-exact'
+                                : cashCompare.difference < 0
+                                  ? 'ops-num ops-cash-short'
+                                  : 'ops-num ops-cash-over'
+                            }>
+                            {describeCashDifference(cashCompare.difference)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p className="ops-stat-note">
+                      Saved on the phone at {formatBusinessTime(cashCount.updatedAt)}. Cash from receipts is cash
+                      receipts plus down payments on partial ones. Expenses are taken off here only, to work out the
+                      cash expected in hand — not from the sales, the net, or anything on the Trends tab.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
             </section>

@@ -2268,6 +2268,15 @@
      kept in the same order by hand, which is how one of them ends up applied
      to the wrong layer. */
   overflow-x: auto;
+  /* Explicit, not left to default: with overflow-x set, overflow-y computes to
+     auto, and the tabs' `margin-bottom: -1px` (which lays their underline over
+     the strip's rule) makes the strip one pixel taller than its box. A mouse
+     wheel then nudged it up and down by that pixel on every turn. */
+  overflow-y: hidden;
+  /* Scrolling that reaches the strip's end stops there instead of carrying on
+     into the drawer. The wheel handler (useDragScroll) already blocks a mouse
+     wheel outright; this covers the browser's own sideways scroll. */
+  overscroll-behavior: contain;
   scrollbar-width: none;
   background:
     linear-gradient(to right, var(--ops-surface), rgba(255, 255, 255, 0)) left / 26px 100% no-repeat
@@ -2282,6 +2291,42 @@
 
 .ops-subtabs::-webkit-scrollbar {
   display: none;
+}
+
+/* Mouse users drag the strip sideways (useDragScroll). The grabbing cursor
+   shows only mid-drag — the tabs keep their own pointer otherwise, since a tab
+   is still mainly something to click. `user-select: none` stops a drag from
+   highlighting the tab labels as text. */
+.ops-subtabs {
+  user-select: none;
+}
+
+.ops-subtabs.dragging,
+.ops-subtabs.dragging .ops-subtab {
+  cursor: grabbing;
+}
+
+/* The run panel's Breakdown tab: the comparison sits under the bill table,
+   with the verdict right-aligned under a heavy rule — the phone's layout. */
+.ops-cash-compare {
+  margin-top: 18px;
+}
+
+.ops-cash-verdict td {
+  border-top: 2px solid var(--ops-ink);
+  font-weight: 700;
+}
+
+.ops-cash-exact {
+  color: var(--ops-live);
+}
+
+.ops-cash-short {
+  color: var(--ops-alert);
+}
+
+.ops-cash-over {
+  color: var(--ops-warn);
 }
 
 .ops-subtab {
